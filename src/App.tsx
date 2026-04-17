@@ -1,51 +1,85 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { useEffect, useState } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { useConnectionStore, loadPersistedSettings } from './store/connection';
+import Installing from './pages/Installing';
+import Connecting from './pages/Connecting';
+import Dashboard from './pages/Dashboard';
+import Settings from './pages/Settings';
+import AddJob from './pages/AddJob';
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+const queryClient = new QueryClient();
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+function AppRouter() {
+  const { serverMode, serverUrl, setConnectionStatus } = useConnectionStore();
+  const navigate = useNavigate();
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    loadPersistedSettings().then(() => setInitialized(true));
+  }, []);
+
+  useEffect(() => {
+    if (!initialized) return;
+
+    if (serverMode === 'local') {
+      invoke<boolean>('check_kenkui').then((found) => {
+        if (!found) {
+          setConnectionStatus('not_found');
+          navigate('/installing');
+          return;
+        }
+        setConnectionStatus('checking');
+        navigate('/connecting');
+        invoke('spawn_server').catch(() => setConnectionStatus('error'));
+      });
+    } else {
+      fetch(`${serverUrl}/health`)
+        .then(() => {
+          setConnectionStatus('connected');
+          navigate('/dashboard');
+        })
+        .catch(() => {
+          setConnectionStatus('error');
+          navigate('/connecting');
+        });
+    }
+  }, [initialized]);
+
+  useEffect(() => {
+    const ready = listen('server-ready', () => {
+      setConnectionStatus('connected');
+      navigate('/dashboard');
+    });
+    const error = listen<string>('server-error', () => {
+      setConnectionStatus('error');
+    });
+    return () => {
+      ready.then((fn) => fn());
+      error.then((fn) => fn());
+    };
+  }, []);
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+    <Routes>
+      <Route path="/installing" element={<Installing />} />
+      <Route path="/connecting" element={<Connecting />} />
+      <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/add/*" element={<AddJob />} />
+      <Route path="/settings" element={<Settings />} />
+      <Route path="*" element={<Connecting />} />
+    </Routes>
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <AppRouter />
+      </BrowserRouter>
+    </QueryClientProvider>
+  );
+}
