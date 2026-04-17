@@ -4,6 +4,7 @@ import { Layout } from '../../components/Layout';
 import Step1Book from './Step1Book';
 import Step2Chapters from './Step2Chapters';
 import Step3Voice from './Step3Voice';
+import Step4Review from './Step4Review';
 import type { BookParseResponse, ChapterPreset } from '../../api/books';
 import type { NarrationMode } from '../../api/queue';
 
@@ -21,17 +22,6 @@ const STEP_LABELS = ['Book', 'Chapters', 'Narration', 'Review'];
 
 
 
-function Step4Placeholder({ onBack, onDone }: { onBack: () => void; onDone: () => void }) {
-  return (
-    <div className="flex flex-col gap-4">
-      <p className="text-muted-foreground">Step 4: Review (coming soon)</p>
-      <div className="flex gap-2">
-        <button onClick={onBack}>Back</button>
-        <button onClick={onDone}>Submit</button>
-      </div>
-    </div>
-  );
-}
 
 export default function AddJob() {
   const navigate = useNavigate();
@@ -98,7 +88,8 @@ export default function AddJob() {
           />
         )}
         {step === 4 && (
-          <Step4Placeholder
+          <Step4Review
+            state={_state as WizardState}
             onBack={() => setStep(3)}
             onDone={() => navigate('/dashboard')}
           />

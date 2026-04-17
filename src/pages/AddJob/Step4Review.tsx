@@ -1,0 +1,97 @@
+import { useState } from 'react';
+import { Button } from '../../components/ui/button';
+import { createJob } from '../../api/queue';
+import type { WizardState } from './index';
+
+interface Props {
+  state: WizardState;
+  onBack: () => void;
+  onDone: () => void;
+}
+
+export default function Step4Review({ state, onBack, onDone }: Props) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const title = state.book.metadata?.title as string | undefined;
+
+  async function handleSubmit() {
+    setLoading(true);
+    setError(null);
+    try {
+      await createJob({
+        ebook_path: state.filePath,
+        voice: state.voice,
+        narration_mode: state.narrationMode,
+        chapter_selection: {
+          preset: state.chapterPreset,
+          included: [],
+          excluded: [],
+        },
+        name: title ?? null,
+        output_path: null,
+        speaker_voices: {},
+        chapter_voices: {},
+      });
+      onDone();
+    } catch {
+      setError('Failed to submit job. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div>
+        <h2 className="text-xl font-semibold">Review & Submit</h2>
+        <p className="text-muted-foreground text-sm mt-1">
+          Confirm your selections before adding to the queue.
+        </p>
+      </div>
+
+      <div className="rounded-lg border p-4 flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Book
+          </span>
+          <span className="font-medium">{title ?? state.filePath}</span>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Chapter preset
+          </span>
+          <span className="text-sm">{state.chapterPreset}</span>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Narration mode
+          </span>
+          <span className="text-sm capitalize">{state.narrationMode}</span>
+        </div>
+
+        {state.narrationMode === 'single' && (
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Voice
+            </span>
+            <span className="text-sm">{state.voice}</span>
+          </div>
+        )}
+      </div>
+
+      {error && <p className="text-sm text-red-600">{error}</p>}
+
+      <div className="flex justify-between">
+        <Button variant="outline" onClick={onBack} disabled={loading}>
+          Back
+        </Button>
+        <Button onClick={handleSubmit} disabled={loading}>
+          {loading ? 'Submitting…' : 'Submit'}
+        </Button>
+      </div>
+    </div>
+  );
+}
