@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/Layout';
 import Step1Book from './Step1Book';
+import Step2Chapters from './Step2Chapters';
 import type { BookParseResponse, ChapterPreset } from '../../api/books';
 import type { NarrationMode } from '../../api/queue';
 
@@ -17,18 +18,6 @@ type Step = 1 | 2 | 3 | 4;
 
 const STEP_LABELS = ['Book', 'Chapters', 'Narration', 'Review'];
 
-// Placeholder — will be replaced in subsequent tasks
-function Step2Placeholder({ onBack, onNext }: { onBack: () => void; onNext: (d: any) => void }) {
-  return (
-    <div className="flex flex-col gap-4">
-      <p className="text-muted-foreground">Step 2: Chapters (coming soon)</p>
-      <div className="flex gap-2">
-        <button onClick={onBack}>Back</button>
-        <button onClick={() => onNext({ chapterPreset: 'content-only' })}>Next</button>
-      </div>
-    </div>
-  );
-}
 
 function Step3Placeholder({ onBack, onNext }: { onBack: () => void; onNext: (d: any) => void }) {
   return (
@@ -100,7 +89,8 @@ export default function AddJob() {
           />
         )}
         {step === 2 && (
-          <Step2Placeholder
+          <Step2Chapters
+            book={_state.book!}
             onBack={() => setStep(1)}
             onNext={(data) => {
               setState((s) => ({ ...s, ...data }));
