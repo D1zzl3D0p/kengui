@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/Layout';
 import Step1Book from './Step1Book';
 import Step2Chapters from './Step2Chapters';
+import Step3Voice from './Step3Voice';
 import type { BookParseResponse, ChapterPreset } from '../../api/books';
 import type { NarrationMode } from '../../api/queue';
 
@@ -19,17 +20,6 @@ type Step = 1 | 2 | 3 | 4;
 const STEP_LABELS = ['Book', 'Chapters', 'Narration', 'Review'];
 
 
-function Step3Placeholder({ onBack, onNext }: { onBack: () => void; onNext: (d: any) => void }) {
-  return (
-    <div className="flex flex-col gap-4">
-      <p className="text-muted-foreground">Step 3: Narration (coming soon)</p>
-      <div className="flex gap-2">
-        <button onClick={onBack}>Back</button>
-        <button onClick={() => onNext({ narrationMode: 'single', voice: 'alba' })}>Next</button>
-      </div>
-    </div>
-  );
-}
 
 function Step4Placeholder({ onBack, onDone }: { onBack: () => void; onDone: () => void }) {
   return (
@@ -99,7 +89,7 @@ export default function AddJob() {
           />
         )}
         {step === 3 && (
-          <Step3Placeholder
+          <Step3Voice
             onBack={() => setStep(2)}
             onNext={(data) => {
               setState((s) => ({ ...s, ...data }));
