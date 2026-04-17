@@ -30,9 +30,13 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
 }));
 
 export async function loadPersistedSettings(): Promise<void> {
-  const store = await load('settings.json');
-  const serverMode = (await store.get<ServerMode>('serverMode')) ?? 'local';
-  const serverUrl =
-    (await store.get<string>('serverUrl')) ?? 'http://localhost:45365';
-  useConnectionStore.setState({ serverMode, serverUrl });
+  try {
+    const store = await load('settings.json');
+    const serverMode = (await store.get<ServerMode>('serverMode')) ?? 'local';
+    const serverUrl =
+      (await store.get<string>('serverUrl')) ?? 'http://localhost:45365';
+    useConnectionStore.setState({ serverMode, serverUrl });
+  } catch {
+    // Store unavailable (e.g. first launch) — keep defaults
+  }
 }

@@ -21,6 +21,25 @@ describe('useConnectionStore', () => {
     useConnectionStore.getState().setConnectionStatus('connected');
     expect(useConnectionStore.getState().connectionStatus).toBe('connected');
   });
+
+  it('setServerMode persists to Tauri store', async () => {
+    const { load } = await import('@tauri-apps/plugin-store');
+    const mockSet = vi.fn(() => Promise.resolve());
+    const mockSave = vi.fn(() => Promise.resolve());
+    vi.mocked(load).mockResolvedValue({
+      get: vi.fn(() => Promise.resolve(null)),
+      set: mockSet,
+      save: mockSave,
+    } as any);
+
+    await useConnectionStore.getState().setServerMode('external', 'http://remote:45365');
+
+    expect(mockSet).toHaveBeenCalledWith('serverMode', 'external');
+    expect(mockSet).toHaveBeenCalledWith('serverUrl', 'http://remote:45365');
+    expect(mockSave).toHaveBeenCalled();
+    expect(useConnectionStore.getState().serverMode).toBe('external');
+    expect(useConnectionStore.getState().serverUrl).toBe('http://remote:45365');
+  });
 });
 
 describe('loadPersistedSettings', () => {
