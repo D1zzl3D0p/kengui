@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import { load } from '@tauri-apps/plugin-store';
+import { nativeStore, type ServerMode } from '../platform';
 
-export type ServerMode = 'local' | 'external';
+export type { ServerMode } from '../platform';
+
 export type ConnectionStatus = 'checking' | 'connected' | 'error' | 'not_found';
 
 interface ConnectionState {
@@ -19,10 +20,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
 
   setServerMode: async (mode, url) => {
     const serverUrl = url ?? 'http://localhost:45365';
-    const store = await load('settings.json');
-    await store.set('serverMode', mode);
-    await store.set('serverUrl', serverUrl);
-    await store.save();
+    await nativeStore.saveSettings({ serverMode: mode, serverUrl });
     set({ serverMode: mode, serverUrl });
   },
 
@@ -30,13 +28,6 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
 }));
 
 export async function loadPersistedSettings(): Promise<void> {
-  try {
-    const store = await load('settings.json');
-    const serverMode = (await store.get<ServerMode>('serverMode')) ?? 'local';
-    const serverUrl =
-      (await store.get<string>('serverUrl')) ?? 'http://localhost:45365';
-    useConnectionStore.setState({ serverMode, serverUrl });
-  } catch {
-    // Store unavailable (e.g. first launch) — keep defaults
-  }
+  const { serverMode, serverUrl } = await nativeStore.loadSettings();
+  useConnectionStore.setState({ serverMode, serverUrl });
 }

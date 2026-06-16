@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
+import { BookOpen, Upload } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { parseBook } from '../../api/books';
+import { pickBookFile } from '../../platform';
 import type { BookParseResponse } from '../../api/books';
 
 interface Step1Data {
@@ -20,11 +21,8 @@ export default function Step1Book({ onNext }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   async function handleChooseFile() {
-    const selected = await open({
-      multiple: false,
-      filters: [{ name: 'Ebooks', extensions: ['epub', 'mobi', 'azw', 'fb2'] }],
-    });
-    if (!selected || Array.isArray(selected)) return;
+    const selected = await pickBookFile();
+    if (!selected) return;
 
     setFilePath(selected);
     setBook(null);
@@ -46,26 +44,43 @@ export default function Step1Book({ onNext }: Props) {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h2 className="text-xl font-semibold">Choose a book</h2>
-        <p className="text-muted-foreground text-sm mt-1">
-          Select an EPUB, MOBI, AZW, or FB2 file to convert.
-        </p>
+      <div className="rounded-lg border bg-card p-5 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
+        <div className="mb-5 flex items-start gap-3">
+          <div className="flex size-11 items-center justify-center rounded-md bg-muted text-primary">
+            <BookOpen className="size-5" aria-hidden="true" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-semibold">Choose a book</h2>
+            <p className="text-muted-foreground text-sm mt-1">
+              Select an EPUB, MOBI, AZW, or FB2 file to convert.
+            </p>
+          </div>
+        </div>
+
+        <Button onClick={handleChooseFile} disabled={loading} className="w-fit">
+          <Upload aria-hidden="true" />
+          {loading ? 'Parsing...' : 'Choose File'}
+        </Button>
       </div>
 
-      <Button onClick={handleChooseFile} disabled={loading} className="w-fit">
-        {loading ? 'Parsing…' : 'Choose file'}
-      </Button>
-
-      {error && <p className="text-red-600 text-sm">{error}</p>}
+      {error && (
+        <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
 
       {book && (
-        <div className="rounded-lg border p-4 flex flex-col gap-1">
-          {title && <p className="font-medium text-lg">{title}</p>}
-          {author && <p className="text-muted-foreground text-sm">{author}</p>}
-          <p className="text-sm mt-2">
-            {book.total_chapters} chapters · {book.total_word_count.toLocaleString()} words
-          </p>
+        <div className="rounded-lg border bg-card p-4 flex gap-4 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
+          <div className="flex h-20 w-14 shrink-0 items-center justify-center rounded bg-[var(--color-deep-slate)] text-[var(--color-parchment)]">
+            <BookOpen className="size-5" aria-hidden="true" />
+          </div>
+          <div className="min-w-0 flex flex-col gap-1">
+            {title && <p className="truncate font-medium text-lg">{title}</p>}
+            {author && <p className="text-muted-foreground text-sm">{author}</p>}
+            <p className="text-sm mt-2">
+              {book.total_chapters} chapters · {book.total_word_count.toLocaleString()} words
+            </p>
+          </div>
         </div>
       )}
 

@@ -18,7 +18,7 @@ export interface WizardState {
 
 type Step = 1 | 2 | 3 | 4;
 
-const STEP_LABELS = ['Book', 'Chapters', 'Narration', 'Review'];
+const STEP_LABELS = ['Add book', 'Chapters', 'Choose voice', 'Review'];
 
 
 
@@ -30,16 +30,16 @@ export default function AddJob() {
 
   function StepIndicator() {
     return (
-      <div className="flex gap-2 mb-8">
+      <div className="mb-8 flex flex-wrap gap-2">
         {STEP_LABELS.map((label, i) => (
           <div key={label} className="flex items-center gap-2">
             <span
-              className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
+              className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs font-medium ${
                 i + 1 === step
-                  ? 'bg-primary text-primary-foreground'
+                  ? 'border-primary bg-primary text-primary-foreground'
                   : i + 1 < step
-                  ? 'bg-green-500 text-white'
-                  : 'bg-muted text-muted-foreground'
+                    ? 'border-[var(--color-success)] bg-[rgb(111_138_101_/_18%)] text-[var(--color-success)]'
+                    : 'border-border bg-muted text-muted-foreground'
               }`}
             >
               {i + 1}
@@ -56,8 +56,12 @@ export default function AddJob() {
 
   return (
     <Layout>
-      <div className="max-w-2xl mx-auto">
-        <h1 className="text-2xl font-bold mb-2">Add Book</h1>
+      <div className="mx-auto max-w-3xl">
+        <p className="text-sm font-medium text-primary">Convert</p>
+        <h1 className="mb-2 text-3xl font-semibold">Add Book</h1>
+        <p className="mb-6 max-w-2xl text-sm text-muted-foreground">
+          Follow the simple path: add a book, choose chapters, select a voice, then start conversion.
+        </p>
         <StepIndicator />
 
         {step === 1 && (

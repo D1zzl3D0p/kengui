@@ -19,6 +19,14 @@ export interface JobResponse {
   output_path: string;
   started_at: number;
   completed_at: number;
+  execution_provider?: string;
+  remote_job_id?: string;
+  estimated_cost_usd?: number | null;
+  actual_cost_usd?: number | null;
+  cost_status?: string;
+  artifact_uri?: string;
+  artifact_source?: string;
+  provider_status?: string;
 }
 
 export interface QueueResponse {
@@ -44,6 +52,7 @@ export interface JobCreateRequest {
   narration_mode: NarrationMode;
   name: string | null;
   output_path: string | null;
+  tts_execution_mode: 'local' | 'modal';
   speaker_voices: Record<string, string>;
   chapter_voices: Record<string, string>;
 }
@@ -51,6 +60,8 @@ export interface JobCreateRequest {
 export const fetchQueue = () => apiRequest<QueueResponse>('/queue');
 export const createJob = (req: JobCreateRequest) =>
   apiRequest<JobResponse>('/queue', { method: 'POST', body: JSON.stringify(req) });
+export const startQueue = () =>
+  apiRequest<{ status: string }>('/queue/start', { method: 'POST' });
 export const pauseJob = (id: string) =>
   apiRequest<void>(`/queue/${id}/pause`, { method: 'POST' });
 export const resumeJob = (id: string) =>

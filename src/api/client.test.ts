@@ -24,7 +24,7 @@ describe('apiRequest', () => {
     await apiRequest('/health');
 
     expect(mockFetch).toHaveBeenCalledWith(
-      'http://localhost:45365/health',
+      'http://localhost:45365/v1/health',
       expect.objectContaining({ headers: expect.any(Object) })
     );
   });
@@ -39,15 +39,47 @@ describe('apiRequest', () => {
 
     await apiRequest('/health');
 
-    expect(mockFetch).toHaveBeenCalledWith('http://remote:45365/health', expect.any(Object));
+    expect(mockFetch).toHaveBeenCalledWith('http://remote:45365/v1/health', expect.any(Object));
+  });
+
+  it('falls back to unversioned route when v1 route is not found', async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve('not found'),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok' }),
+      });
+
+    await apiRequest('/health');
+
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:45365/v1/health',
+      expect.any(Object)
+    );
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:45365/health',
+      expect.any(Object)
+    );
   });
 
   it('throws ApiError on non-ok response', async () => {
-    mockFetch.mockResolvedValue({
-      ok: false,
-      status: 404,
-      text: () => Promise.resolve('not found'),
-    });
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve('not found'),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve('not found'),
+      });
 
     await expect(apiRequest('/missing')).rejects.toBeInstanceOf(ApiError);
   });

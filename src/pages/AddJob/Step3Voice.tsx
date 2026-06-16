@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Mic2, UsersRound } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { fetchVoices } from '../../api/voices';
 import type { VoiceResponse } from '../../api/voices';
@@ -32,8 +33,9 @@ export default function Step3Voice({ onBack, onNext }: Props) {
       .then((data) => {
         const available = data.voices.filter((v) => !v.excluded);
         setVoices(available);
-        if (available.length > 0) {
-          setSelectedVoice(available[0].name);
+        const firstVoice = available[0];
+        if (firstVoice) {
+          setSelectedVoice(firstVoice.name);
         }
       })
       .catch(() => setError('Failed to load voices.'))
@@ -53,29 +55,33 @@ export default function Step3Voice({ onBack, onNext }: Props) {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-xl font-semibold">Narration</h2>
+        <h2 className="text-2xl font-semibold">Choose voice</h2>
         <p className="text-muted-foreground text-sm mt-1">
           Choose how the audiobook will be narrated.
         </p>
       </div>
 
-      <div className="flex gap-2">
+      <div className="grid gap-2 sm:grid-cols-2">
         <Button
           variant={narrationMode === 'single' ? 'default' : 'outline'}
+          className="min-h-11 justify-start"
           onClick={() => setNarrationMode('single')}
         >
+          <Mic2 aria-hidden="true" />
           Single voice
         </Button>
         <Button
           variant={narrationMode === 'multi' ? 'default' : 'outline'}
+          className="min-h-11 justify-start"
           onClick={() => setNarrationMode('multi')}
         >
+          <UsersRound aria-hidden="true" />
           Multi-voice
         </Button>
       </div>
 
       {narrationMode === 'single' && (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 rounded-lg border bg-card p-4 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
           <label htmlFor="voice-select" className="text-sm font-medium">
             Voice
           </label>
@@ -83,14 +89,16 @@ export default function Step3Voice({ onBack, onNext }: Props) {
             <p className="text-sm text-muted-foreground">Loading voices…</p>
           )}
           {error && (
-            <p className="text-sm text-red-600">{error}</p>
+            <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </p>
           )}
           {!loading && !error && (
             <select
               id="voice-select"
               value={selectedVoice}
               onChange={(e) => setSelectedVoice(e.target.value)}
-              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              className="min-h-10 rounded-md border border-input bg-card px-3 py-2 text-sm"
             >
               {voices.map((v) => (
                 <option key={v.name} value={v.name}>
@@ -103,7 +111,7 @@ export default function Step3Voice({ onBack, onNext }: Props) {
       )}
 
       {narrationMode === 'multi' && (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 rounded-lg border bg-card p-4 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
           <div className="flex flex-col gap-2">
             <label htmlFor="nlp-mode-select" className="text-sm font-medium">
               NLP mode
@@ -112,7 +120,7 @@ export default function Step3Voice({ onBack, onNext }: Props) {
               id="nlp-mode-select"
               value={nlpMode}
               onChange={(e) => setNlpMode(e.target.value as NlpMode)}
-              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              className="min-h-10 rounded-md border border-input bg-card px-3 py-2 text-sm"
             >
               <option value="booknlp">BookNLP</option>
               <option value="ollama">Ollama LLM</option>
@@ -123,7 +131,7 @@ export default function Step3Voice({ onBack, onNext }: Props) {
             assigned to each character.
           </p>
           {nlpMode === 'ollama' && (
-            <p className="text-sm text-amber-600">
+            <p className="rounded-md border border-[rgb(184_155_77_/_35%)] bg-[rgb(184_155_77_/_15%)] px-3 py-2 text-sm text-[var(--color-ink)]">
               Ollama LLM may take longer to scan the book before narration begins.
             </p>
           )}

@@ -48,13 +48,13 @@ export default function Step2Chapters({ book, onBack, onNext }: Props) {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-xl font-semibold">Select chapters</h2>
+        <h2 className="text-2xl font-semibold">Select chapters</h2>
         <p className="text-muted-foreground text-sm mt-1">
           Choose which chapters to include in the audiobook.
         </p>
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 rounded-lg border bg-card p-4 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
         <label htmlFor="preset-select" className="text-sm font-medium">
           Chapter preset
         </label>
@@ -62,7 +62,7 @@ export default function Step2Chapters({ book, onBack, onNext }: Props) {
           id="preset-select"
           value={preset}
           onChange={handlePresetChange}
-          className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+          className="min-h-10 rounded-md border border-input bg-card px-3 py-2 text-sm"
         >
           {PRESETS.map((p) => (
             <option key={p.value} value={p.value}>
@@ -77,7 +77,9 @@ export default function Step2Chapters({ book, onBack, onNext }: Props) {
       )}
 
       {error && (
-        <p className="text-sm text-red-600">{error}</p>
+        <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
       )}
 
       {result && !loading && (
@@ -85,9 +87,9 @@ export default function Step2Chapters({ book, onBack, onNext }: Props) {
           <p className="text-sm text-muted-foreground">
             {result.chapter_count} chapters · {result.estimated_word_count.toLocaleString()} words
           </p>
-          <ul className="flex flex-col gap-1 rounded-lg border divide-y">
+          <ul className="flex flex-col overflow-hidden rounded-lg border bg-card shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
             {result.chapters.map((chapter) => (
-              <li key={chapter.index} className="flex items-center justify-between px-4 py-2">
+              <li key={chapter.index} className="flex items-center justify-between gap-3 border-b px-4 py-2 last:border-b-0">
                 <span className="text-sm">{chapter.title}</span>
                 <span className="text-xs text-muted-foreground">
                   {chapter.word_count.toLocaleString()} words

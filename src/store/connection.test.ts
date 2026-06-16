@@ -1,5 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { nativeStore } from '../platform';
 import { useConnectionStore, loadPersistedSettings } from './connection';
+
+vi.mock('../platform', () => ({
+  nativeStore: {
+    loadSettings: vi.fn(() =>
+      Promise.resolve({
+        serverMode: 'local',
+        serverUrl: 'http://localhost:45365',
+      })
+    ),
+    saveSettings: vi.fn(() => Promise.resolve()),
+  },
+}));
 
 beforeEach(() => {
   useConnectionStore.setState({
@@ -7,6 +20,13 @@ beforeEach(() => {
     serverUrl: 'http://localhost:45365',
     connectionStatus: 'checking',
   });
+  vi.mocked(nativeStore.loadSettings).mockReset();
+  vi.mocked(nativeStore.loadSettings).mockResolvedValue({
+    serverMode: 'local',
+    serverUrl: 'http://localhost:45365',
+  });
+  vi.mocked(nativeStore.saveSettings).mockReset();
+  vi.mocked(nativeStore.saveSettings).mockResolvedValue(undefined);
 });
 
 describe('useConnectionStore', () => {
@@ -22,21 +42,13 @@ describe('useConnectionStore', () => {
     expect(useConnectionStore.getState().connectionStatus).toBe('connected');
   });
 
-  it('setServerMode persists to Tauri store', async () => {
-    const { load } = await import('@tauri-apps/plugin-store');
-    const mockSet = vi.fn(() => Promise.resolve());
-    const mockSave = vi.fn(() => Promise.resolve());
-    vi.mocked(load).mockResolvedValue({
-      get: vi.fn(() => Promise.resolve(null)),
-      set: mockSet,
-      save: mockSave,
-    } as any);
-
+  it('setServerMode persists settings through the platform store', async () => {
     await useConnectionStore.getState().setServerMode('external', 'http://remote:45365');
 
-    expect(mockSet).toHaveBeenCalledWith('serverMode', 'external');
-    expect(mockSet).toHaveBeenCalledWith('serverUrl', 'http://remote:45365');
-    expect(mockSave).toHaveBeenCalled();
+    expect(nativeStore.saveSettings).toHaveBeenCalledWith({
+      serverMode: 'external',
+      serverUrl: 'http://remote:45365',
+    });
     expect(useConnectionStore.getState().serverMode).toBe('external');
     expect(useConnectionStore.getState().serverUrl).toBe('http://remote:45365');
   });
@@ -44,13 +56,6 @@ describe('useConnectionStore', () => {
 
 describe('loadPersistedSettings', () => {
   it('keeps defaults when store is empty', async () => {
-    const { load } = await import('@tauri-apps/plugin-store');
-    vi.mocked(load).mockResolvedValue({
-      get: vi.fn(() => Promise.resolve(null)),
-      set: vi.fn(),
-      save: vi.fn(),
-    } as any);
-
     await loadPersistedSettings();
 
     const { serverMode, serverUrl } = useConnectionStore.getState();
@@ -59,16 +64,10 @@ describe('loadPersistedSettings', () => {
   });
 
   it('loads persisted external mode', async () => {
-    const { load } = await import('@tauri-apps/plugin-store');
-    vi.mocked(load).mockResolvedValue({
-      get: vi.fn((key: string) => {
-        if (key === 'serverMode') return Promise.resolve('external');
-        if (key === 'serverUrl') return Promise.resolve('http://myserver.local:45365');
-        return Promise.resolve(null);
-      }),
-      set: vi.fn(),
-      save: vi.fn(),
-    } as any);
+    vi.mocked(nativeStore.loadSettings).mockResolvedValue({
+      serverMode: 'external',
+      serverUrl: 'http://myserver.local:45365',
+    });
 
     await loadPersistedSettings();
 

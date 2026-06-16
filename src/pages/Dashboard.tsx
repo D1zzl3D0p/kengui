@@ -1,10 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { BookOpen, CirclePause, CirclePlay, ListMusic, X } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { StatusBadge } from '../components/StatusBadge';
 import { ProgressBar } from '../components/ProgressBar';
 import { Button } from '../components/ui/button';
-import { fetchQueue, pauseJob, resumeJob, cancelJob } from '../api/queue';
+import { fetchQueue, pauseJob, resumeJob, cancelJob, startQueue } from '../api/queue';
 import type { JobResponse } from '../api/queue';
 
 function formatEta(seconds: number): string {
@@ -21,39 +22,78 @@ function JobRow({ job }: { job: JobResponse }) {
   const pause = useMutation({ mutationFn: () => pauseJob(job.id), onSuccess: invalidate });
   const resume = useMutation({ mutationFn: () => resumeJob(job.id), onSuccess: invalidate });
   const cancel = useMutation({ mutationFn: () => cancelJob(job.id), onSuccess: invalidate });
+  const start = useMutation({ mutationFn: startQueue, onSuccess: invalidate });
 
   const name = (job.job as { name?: string }).name ?? job.id;
+  const progressValue = job.progress > 1 ? job.progress / 100 : job.progress;
+  const canCancel =
+    job.status === 'pending' || job.status === 'processing' || job.status === 'paused';
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border p-4">
-      <div className="flex items-center justify-between">
-        <span className="font-medium">{name}</span>
+    <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 gap-3">
+          <div className="hidden size-12 shrink-0 items-center justify-center rounded-md bg-muted text-primary sm:flex">
+            <BookOpen className="size-5" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <span className="block truncate font-medium">{name}</span>
+            <span className="mt-1 block text-xs text-muted-foreground">
+              Conversion job
+            </span>
+          </div>
+        </div>
         <StatusBadge status={job.status} />
       </div>
 
-      {job.status === 'processing' && (
+      {(job.status === 'processing' || job.status === 'paused') && (
         <>
-          <ProgressBar value={job.progress} />
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>{job.current_chapter}</span>
+          <ProgressBar value={progressValue} />
+          <div className="flex justify-between gap-3 text-xs text-muted-foreground">
+            <span className="truncate">{job.current_chapter}</span>
             <span>ETA: {formatEta(job.eta_seconds)}</span>
           </div>
         </>
       )}
 
-      <div className="flex gap-2">
+      {job.status === 'completed' && job.output_path && (
+        <p className="text-xs text-muted-foreground break-all">
+          Output: {job.output_path}
+        </p>
+      )}
+
+      {job.status === 'failed' && job.error_message && (
+        <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {job.error_message}
+        </p>
+      )}
+
+      {job.provider_status && (
+        <p className="text-xs text-muted-foreground">{job.provider_status}</p>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        {job.status === 'pending' && (
+          <Button size="sm" variant="outline" onClick={() => start.mutate()}>
+            <CirclePlay aria-hidden="true" />
+            Start
+          </Button>
+        )}
         {job.status === 'processing' && (
           <Button size="sm" variant="outline" onClick={() => pause.mutate()}>
+            <CirclePause aria-hidden="true" />
             Pause
           </Button>
         )}
         {job.status === 'paused' && (
           <Button size="sm" variant="outline" onClick={() => resume.mutate()}>
+            <CirclePlay aria-hidden="true" />
             Resume
           </Button>
         )}
-        {(job.status === 'pending' || job.status === 'processing' || job.status === 'paused') && (
+        {canCancel && (
           <Button size="sm" variant="destructive" onClick={() => cancel.mutate()}>
+            <X aria-hidden="true" />
             Cancel
           </Button>
         )}
@@ -72,18 +112,39 @@ export default function Dashboard() {
 
   return (
     <Layout>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Queue</h1>
-        <Button onClick={() => navigate('/add')}>Add Book</Button>
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-sm font-medium text-primary">Library</p>
+          <h1 className="text-3xl font-semibold">Conversion Queue</h1>
+          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+            Track books as they move from page to voice.
+          </p>
+        </div>
+        <Button onClick={() => navigate('/add')}>
+          <BookOpen aria-hidden="true" />
+          Add Book
+        </Button>
       </div>
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
-      {isError && <p className="text-red-600">Failed to load queue.</p>}
+      {isError && (
+        <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          Failed to load queue.
+        </p>
+      )}
 
       {data && data.items.length === 0 && (
-        <div className="flex flex-col items-center gap-3 py-20 text-center">
-          <p className="text-muted-foreground">No jobs in queue.</p>
-          <Button onClick={() => navigate('/add')}>Add your first book</Button>
+        <div className="flex flex-col items-center gap-4 rounded-lg border bg-card px-6 py-16 text-center shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
+          <div className="flex size-14 items-center justify-center rounded-lg bg-muted text-primary">
+            <ListMusic className="size-6" aria-hidden="true" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-semibold">Your shelf is waiting.</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              No jobs in queue. Add an ebook to begin turning pages into voice.
+            </p>
+          </div>
+          <Button onClick={() => navigate('/add')}>Add Book</Button>
         </div>
       )}
 

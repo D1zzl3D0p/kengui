@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { CheckCircle2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
-import { createJob } from '../../api/queue';
+import { createJob, startQueue } from '../../api/queue';
 import type { WizardState } from './index';
 
 interface Props {
@@ -30,9 +31,11 @@ export default function Step4Review({ state, onBack, onDone }: Props) {
         },
         name: title ?? null,
         output_path: null,
+        tts_execution_mode: 'local',
         speaker_voices: {},
         chapter_voices: {},
       });
+      await startQueue();
       onDone();
     } catch {
       setError('Failed to submit job. Please try again.');
@@ -44,13 +47,13 @@ export default function Step4Review({ state, onBack, onDone }: Props) {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-xl font-semibold">Review & Submit</h2>
+        <h2 className="text-2xl font-semibold">Review conversion</h2>
         <p className="text-muted-foreground text-sm mt-1">
           Confirm your selections before adding to the queue.
         </p>
       </div>
 
-      <div className="rounded-lg border p-4 flex flex-col gap-3">
+      <div className="rounded-lg border bg-card p-4 flex flex-col gap-3 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
             Book
@@ -82,14 +85,19 @@ export default function Step4Review({ state, onBack, onDone }: Props) {
         )}
       </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && (
+        <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
 
       <div className="flex justify-between">
         <Button variant="outline" onClick={onBack} disabled={loading}>
           Back
         </Button>
-        <Button onClick={handleSubmit} disabled={loading}>
-          {loading ? 'Submitting…' : 'Submit'}
+        <Button aria-label="Submit conversion" onClick={handleSubmit} disabled={loading}>
+          <CheckCircle2 aria-hidden="true" />
+          {loading ? 'Submitting...' : 'Start Conversion'}
         </Button>
       </div>
     </div>

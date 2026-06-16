@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { useConnectionStore, loadPersistedSettings } from './store/connection';
+import { createRuntimeAdapter, waitForRuntimeHealth } from './runtime/runtime';
+import { nativeEvents } from './platform';
 import Installing from './pages/Installing';
 import Connecting from './pages/Connecting';
 import Dashboard from './pages/Dashboard';
@@ -11,11 +11,19 @@ import Settings from './pages/Settings';
 import AddJob from './pages/AddJob';
 
 const queryClient = new QueryClient();
+const APP_ROUTES = ['/dashboard', '/add', '/settings'];
+
+function isAppRoute(pathname: string): boolean {
+  return APP_ROUTES.some((route) =>
+    pathname === route || pathname.startsWith(`${route}/`)
+  );
+}
 
 function AppRouter() {
   const { serverMode, serverUrl, setConnectionStatus } = useConnectionStore();
   const navigate = useNavigate();
   const [initialized, setInitialized] = useState(false);
+  const connectionAttemptRef = useRef(0);
 
   useEffect(() => {
     loadPersistedSettings().then(() => setInitialized(true));
@@ -24,36 +32,86 @@ function AppRouter() {
   useEffect(() => {
     if (!initialized) return;
 
+    let cancelled = false;
+    const attemptId = connectionAttemptRef.current + 1;
+    connectionAttemptRef.current = attemptId;
+    const runtime = createRuntimeAdapter(serverMode, serverUrl);
+    const isCurrentAttempt = () =>
+      !cancelled && connectionAttemptRef.current === attemptId;
+    const navigateToConnecting = () => {
+      if (!isAppRoute(window.location.pathname)) {
+        navigate('/connecting', { replace: true });
+      }
+    };
+    const navigateAfterConnected = () => {
+      if (!isAppRoute(window.location.pathname)) {
+        navigate('/dashboard', { replace: true });
+      }
+    };
+
     if (serverMode === 'local') {
-      invoke<boolean>('check_kenkui').then((found) => {
+      runtime.checkAvailable().then((found) => {
+        if (!isCurrentAttempt()) return;
         if (!found) {
           setConnectionStatus('not_found');
-          navigate('/installing');
+          navigate('/installing', { replace: true });
           return;
         }
         setConnectionStatus('checking');
-        navigate('/connecting');
-        invoke('spawn_server').catch(() => setConnectionStatus('error'));
+        navigateToConnecting();
+        runtime
+          .start()
+          .then(() => waitForRuntimeHealth(runtime))
+          .then(() => {
+            if (!isCurrentAttempt()) return;
+            setConnectionStatus('connected');
+            navigateAfterConnected();
+          })
+          .catch(() => {
+            if (!isCurrentAttempt()) return;
+            setConnectionStatus('error');
+            navigateToConnecting();
+          });
       });
     } else {
-      fetch(`${serverUrl}/health`)
+      setConnectionStatus('checking');
+      navigateToConnecting();
+      runtime
+        .health()
+        .then(() => {
+          if (!isCurrentAttempt()) return;
+          setConnectionStatus('connected');
+          navigateAfterConnected();
+        })
+        .catch(() => {
+          if (!isCurrentAttempt()) return;
+          setConnectionStatus('error');
+          navigateToConnecting();
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [initialized, navigate, serverMode, serverUrl, setConnectionStatus]);
+
+  useEffect(() => {
+    const ready = nativeEvents.onServerReady(() => {
+      const runtime = createRuntimeAdapter(
+        useConnectionStore.getState().serverMode,
+        useConnectionStore.getState().serverUrl
+      );
+      waitForRuntimeHealth(runtime)
         .then(() => {
           setConnectionStatus('connected');
-          navigate('/dashboard');
+          if (!isAppRoute(window.location.pathname)) {
+            navigate('/dashboard');
+          }
         })
         .catch(() => {
           setConnectionStatus('error');
-          navigate('/connecting');
         });
-    }
-  }, [initialized]);
-
-  useEffect(() => {
-    const ready = listen('server-ready', () => {
-      setConnectionStatus('connected');
-      navigate('/dashboard');
     });
-    const error = listen<string>('server-error', () => {
+    const error = nativeEvents.onServerError(() => {
       setConnectionStatus('error');
     });
     return () => {

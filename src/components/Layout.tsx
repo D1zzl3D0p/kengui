@@ -1,33 +1,146 @@
 import { Link, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
+import {
+  BookOpen,
+  Headphones,
+  Library,
+  Search,
+  Settings,
+  SlidersHorizontal,
+  Waves,
+} from 'lucide-react';
 
 interface Props {
   children: ReactNode;
+}
+
+const navItems = [
+  { to: '/dashboard', label: 'Library', icon: Library },
+  { to: '/add', label: 'Convert', icon: BookOpen },
+  { to: '/dashboard', label: 'Voices', icon: Waves, disabled: true },
+  { to: '/dashboard', label: 'Audiobooks', icon: Headphones, disabled: true },
+  { to: '/settings', label: 'Settings', icon: Settings },
+];
+
+function isActive(pathname: string, to: string, label: string) {
+  if (label === 'Voices' || label === 'Audiobooks') return false;
+  return pathname === to || pathname.startsWith(`${to}/`);
 }
 
 export function Layout({ children }: Props) {
   const location = useLocation();
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
-      <header className="flex items-center justify-between border-b px-4 py-3">
-        <span className="text-lg font-semibold">kengui</span>
-        <nav className="flex gap-4 text-sm">
-          <Link
-            to="/dashboard"
-            className={location.pathname === '/dashboard' ? 'font-medium' : 'text-muted-foreground'}
-          >
-            Queue
-          </Link>
+    <div className="min-h-screen bg-transparent text-foreground md:grid md:grid-cols-[15rem_minmax(0,1fr)]">
+      <aside className="hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex md:h-screen md:flex-col">
+        <div className="flex items-center gap-3 border-b border-sidebar-border px-5 py-5">
+          <span className="font-heading text-5xl font-semibold leading-none">K</span>
+          <div>
+            <p className="font-heading text-xl font-semibold leading-none">KenGUI</p>
+            <p className="mt-1 text-xs text-sidebar-foreground/70">From page to voice</p>
+          </div>
+        </div>
+
+        <div className="px-4 py-5">
+          <div className="flex items-center gap-2 rounded-lg border border-sidebar-border bg-sidebar-accent px-3 py-2 text-sm text-sidebar-foreground/75">
+            <Search className="size-4" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate">Search library or conversions</span>
+            <kbd className="rounded border border-sidebar-border px-1.5 py-0.5 text-[0.65rem]">
+              Ctrl K
+            </kbd>
+          </div>
+        </div>
+
+        <nav className="flex flex-1 flex-col gap-1 px-3 text-sm">
+          {navItems.map(({ to, label, icon: Icon, disabled }) => {
+            const active = isActive(location.pathname, to, label);
+            const className = active
+              ? 'bg-sidebar-primary text-sidebar-primary-foreground'
+              : disabled
+                ? 'text-sidebar-foreground/45'
+                : 'text-sidebar-foreground/78 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground';
+
+            const content = (
+              <>
+                <Icon className="size-4" aria-hidden="true" />
+                <span>{label}</span>
+              </>
+            );
+
+            return disabled ? (
+              <span
+                key={label}
+                aria-disabled="true"
+                className={`flex min-h-11 items-center gap-3 rounded-lg px-3 transition-colors ${className}`}
+              >
+                {content}
+              </span>
+            ) : (
+              <Link
+                key={label}
+                to={to}
+                className={`flex min-h-11 items-center gap-3 rounded-lg px-3 transition-colors ${className}`}
+              >
+                {content}
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div className="border-t border-sidebar-border p-4 text-xs leading-relaxed text-sidebar-foreground/68">
+          Local, external, and hosted runtimes share one calm conversion flow.
+        </div>
+      </aside>
+
+      <div className="flex min-h-screen flex-col">
+        <header className="sticky top-0 z-10 flex items-center justify-between border-b bg-background/92 px-4 py-3 backdrop-blur md:hidden">
+          <div className="flex items-center gap-3">
+            <span className="font-heading text-4xl font-semibold leading-none">K</span>
+            <div>
+              <p className="font-heading text-xl font-semibold leading-none">KenGUI</p>
+              <p className="mt-1 text-xs text-muted-foreground">From page to voice</p>
+            </div>
+          </div>
           <Link
             to="/settings"
-            className={location.pathname === '/settings' ? 'font-medium' : 'text-muted-foreground'}
+            aria-label="Open settings"
+            className="flex size-10 items-center justify-center rounded-lg border bg-card text-muted-foreground"
           >
-            Settings
+            <SlidersHorizontal className="size-4" aria-hidden="true" />
           </Link>
+        </header>
+
+        <main className="flex-1 overflow-auto px-4 py-5 pb-24 md:h-screen md:px-8 md:py-8">
+          {children}
+        </main>
+
+        <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-4 border-t bg-card/95 text-xs shadow-[0_-8px_24px_rgb(40_58_66_/_10%)] backdrop-blur md:hidden">
+          {navItems
+            .filter((item) => ['Library', 'Convert', 'Voices', 'Settings'].includes(item.label))
+            .map(({ to, label, icon: Icon, disabled }) => {
+              const active = isActive(location.pathname, to, label);
+              const className = `flex min-h-14 flex-col items-center justify-center gap-1 ${
+                active ? 'text-primary' : disabled ? 'text-muted-foreground/55' : 'text-muted-foreground'
+              }`;
+              const content = (
+                <>
+                  <Icon className="size-4" aria-hidden="true" />
+                  <span>{label}</span>
+                </>
+              );
+
+              return disabled ? (
+                <span key={label} aria-disabled="true" className={className}>
+                  {content}
+                </span>
+              ) : (
+                <Link key={label} to={to} className={className}>
+                  {content}
+                </Link>
+              );
+            })}
         </nav>
-      </header>
-      <main className="flex-1 overflow-auto p-6">{children}</main>
+      </div>
     </div>
   );
 }

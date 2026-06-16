@@ -7,6 +7,7 @@ import type { JobResponse } from '../../api/queue';
 
 vi.mock('../../api/queue', () => ({
   createJob: vi.fn(),
+  startQueue: vi.fn(),
   fetchQueue: vi.fn(),
   pauseJob: vi.fn(),
   resumeJob: vi.fn(),
@@ -14,7 +15,9 @@ vi.mock('../../api/queue', () => ({
 }));
 
 import { createJob } from '../../api/queue';
+import { startQueue } from '../../api/queue';
 const mockCreateJob = createJob as ReturnType<typeof vi.fn>;
+const mockStartQueue = startQueue as ReturnType<typeof vi.fn>;
 
 const mockState: WizardState = {
   filePath: '/books/great-book.epub',
@@ -46,6 +49,7 @@ const mockJobResponse: JobResponse = {
 describe('Step4Review', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockStartQueue.mockResolvedValue({ status: 'started' });
   });
 
   it('displays summary of wizard selections', () => {
@@ -75,9 +79,11 @@ describe('Step4Review', () => {
           ebook_path: '/books/great-book.epub',
           voice: 'alba',
           narration_mode: 'single',
+          tts_execution_mode: 'local',
           chapter_selection: expect.objectContaining({ preset: 'content-only' }),
         })
       );
+      expect(mockStartQueue).toHaveBeenCalled();
       expect(onDone).toHaveBeenCalled();
     });
   });

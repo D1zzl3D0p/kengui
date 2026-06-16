@@ -1,11 +1,13 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi } from 'vitest';
-import { open } from '@tauri-apps/plugin-dialog';
 import * as booksApi from '../../api/books';
+import { pickBookFile } from '../../platform';
 import Step1Book from './Step1Book';
 
-vi.mock('@tauri-apps/plugin-dialog');
+vi.mock('../../platform', () => ({
+  pickBookFile: vi.fn(),
+}));
 vi.mock('../../api/books');
 
 const mockBook = {
@@ -18,18 +20,16 @@ const mockBook = {
 
 describe('Step1Book', () => {
   it('calls file dialog on button click', async () => {
-    vi.mocked(open).mockResolvedValue(null);
+    vi.mocked(pickBookFile).mockResolvedValue(null);
     const onNext = vi.fn();
     render(<Step1Book onNext={onNext} />);
 
     await userEvent.click(screen.getByRole('button', { name: /choose file/i }));
-    expect(open).toHaveBeenCalledWith(
-      expect.objectContaining({ filters: expect.any(Array) })
-    );
+    expect(pickBookFile).toHaveBeenCalled();
   });
 
   it('shows book title after parse succeeds', async () => {
-    vi.mocked(open).mockResolvedValue('/path/to/book.epub');
+    vi.mocked(pickBookFile).mockResolvedValue('/path/to/book.epub');
     vi.mocked(booksApi.parseBook).mockResolvedValue(mockBook);
     const onNext = vi.fn();
     render(<Step1Book onNext={onNext} />);
@@ -39,7 +39,7 @@ describe('Step1Book', () => {
   });
 
   it('enables Next button after successful parse', async () => {
-    vi.mocked(open).mockResolvedValue('/path/to/book.epub');
+    vi.mocked(pickBookFile).mockResolvedValue('/path/to/book.epub');
     vi.mocked(booksApi.parseBook).mockResolvedValue(mockBook);
     const onNext = vi.fn();
     render(<Step1Book onNext={onNext} />);
@@ -49,7 +49,7 @@ describe('Step1Book', () => {
   });
 
   it('calls onNext with book data', async () => {
-    vi.mocked(open).mockResolvedValue('/path/to/book.epub');
+    vi.mocked(pickBookFile).mockResolvedValue('/path/to/book.epub');
     vi.mocked(booksApi.parseBook).mockResolvedValue(mockBook);
     const onNext = vi.fn();
     render(<Step1Book onNext={onNext} />);

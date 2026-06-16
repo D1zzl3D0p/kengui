@@ -78,4 +78,45 @@ describe('Dashboard', () => {
     await userEvent.click(screen.getByRole('button', { name: /cancel/i }));
     expect(queueApi.cancelJob).toHaveBeenCalledWith('job-1');
   });
+
+  it('shows output path for completed jobs', async () => {
+    vi.mocked(queueApi.fetchQueue).mockResolvedValue({
+      items: [{ ...mockJob, status: 'completed', output_path: '/books/Test Book.m4b' }],
+      current_item: null,
+      pending_count: 0,
+      completed_count: 1,
+      failed_count: 0,
+    });
+    renderDashboard();
+    await waitFor(() =>
+      expect(screen.getByText(/\/books\/Test Book\.m4b/i)).toBeInTheDocument()
+    );
+  });
+
+  it('shows error message for failed jobs', async () => {
+    vi.mocked(queueApi.fetchQueue).mockResolvedValue({
+      items: [{ ...mockJob, status: 'failed', error_message: 'render failed' }],
+      current_item: null,
+      pending_count: 0,
+      completed_count: 0,
+      failed_count: 1,
+    });
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('render failed')).toBeInTheDocument());
+  });
+
+  it('starts the queue for pending jobs', async () => {
+    vi.mocked(queueApi.startQueue).mockResolvedValue({ status: 'started' });
+    vi.mocked(queueApi.fetchQueue).mockResolvedValue({
+      items: [{ ...mockJob, status: 'pending' }],
+      current_item: null,
+      pending_count: 1,
+      completed_count: 0,
+      failed_count: 0,
+    });
+    renderDashboard();
+    await waitFor(() => screen.getByText('Test Book'));
+    await userEvent.click(screen.getByRole('button', { name: /start/i }));
+    expect(queueApi.startQueue).toHaveBeenCalled();
+  });
 });

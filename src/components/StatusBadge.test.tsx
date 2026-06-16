@@ -11,13 +11,13 @@ describe('StatusBadge', () => {
     expect(screen.getByText(status)).toBeInTheDocument();
   });
 
-  it('renders completed with green color class', () => {
+  it('renders completed with success token class', () => {
     const { container } = render(<StatusBadge status="completed" />);
-    expect(container.firstChild).toHaveClass('bg-green-100');
+    expect(container.firstChild).toHaveClass('text-[var(--color-success)]');
   });
 
-  it('renders failed with red color class', () => {
+  it('renders failed with error token class', () => {
     const { container } = render(<StatusBadge status="failed" />);
-    expect(container.firstChild).toHaveClass('bg-red-100');
+    expect(container.firstChild).toHaveClass('text-[var(--color-error)]');
   });
 });

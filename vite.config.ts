@@ -15,6 +15,13 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     watch: { ignored: ['**/src-tauri/**'] },
+    proxy: {
+      '/kenkui-api': {
+        target: 'http://127.0.0.1:45365',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/kenkui-api/, ''),
+      },
+    },
   },
   test: {
     globals: true,
