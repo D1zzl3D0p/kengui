@@ -63,6 +63,32 @@ describe('createRuntimeAdapter', () => {
     expect(nativeCommands.spawnServer).not.toHaveBeenCalled();
   });
 
+  it('rejects local runtimes that do not expose kenkui capabilities', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        status: 'healthy',
+        capabilities: ['local-queue', 'single-voice', 'voices', 'book-parse'],
+      }),
+    });
+    const runtime = createRuntimeAdapter('local', 'http://localhost:45365');
+
+    await expect(runtime.health()).rejects.toThrow(/compatible kenkui serve/);
+  });
+
+  it('allows external runtimes with older capability sets', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        status: 'healthy',
+        capabilities: ['local-queue', 'single-voice', 'voices', 'book-parse'],
+      }),
+    });
+    const runtime = createRuntimeAdapter('external', 'http://server.local:45365');
+
+    await expect(runtime.health()).resolves.toMatchObject({ status: 'healthy' });
+  });
+
   it('retries health checks until the runtime is available', async () => {
     const runtime = {
       health: vi

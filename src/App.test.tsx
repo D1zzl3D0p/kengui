@@ -58,7 +58,10 @@ beforeEach(() => {
   mockFetch.mockReset();
   mockFetch.mockImplementation((url: string) => {
     const body = url.endsWith('/health')
-      ? { status: 'healthy' }
+      ? {
+          status: 'healthy',
+          capabilities: ['local-queue', 'single-voice', 'multi-voice', 'voices', 'book-parse'],
+        }
       : { status: 'idle', is_running: false, items: [] };
 
     return Promise.resolve({

@@ -21,7 +21,14 @@ async function fetchHealth(serverUrl: string, mode: ServerMode): Promise<Runtime
   if (!res.ok) {
     throw new Error(`Server health check failed with ${res.status}`);
   }
-  return res.json() as Promise<RuntimeHealth>;
+  const health = await res.json() as RuntimeHealth;
+  if (
+    mode === 'local' &&
+    !health.capabilities?.includes('multi-voice')
+  ) {
+    throw new Error('Local runtime is not a compatible kenkui serve instance.');
+  }
+  return health;
 }
 
 function sleep(ms: number): Promise<void> {
