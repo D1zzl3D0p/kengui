@@ -47,14 +47,39 @@ export interface ChapterSelection {
 
 export interface JobCreateRequest {
   ebook_path: string;
-  voice: string;
+  voice?: string;
   chapter_selection: ChapterSelection | null;
   narration_mode: NarrationMode;
   name: string | null;
   output_path: string | null;
-  tts_execution_mode: 'local' | 'modal';
-  speaker_voices: Record<string, string>;
-  chapter_voices: Record<string, string>;
+  tts_execution_mode?: 'local' | 'modal';
+  modal_endpoint?: string | null;
+  modal_environment?: string | null;
+  speaker_voices?: Record<string, string>;
+  annotated_chapters_path?: string | null;
+  chapter_voices?: Record<string, string>;
+  roster_cache_path?: string | null;
+  series_slug?: string | null;
+  job_nlp_provider?: string | null;
+  job_nlp_model?: string | null;
+  job_temp?: number | null;
+  job_lsd_decode_steps?: number | null;
+  job_noise_clamp?: number | null;
+  job_eos_threshold?: number | null;
+  job_post_processing_enabled?: boolean | null;
+  job_m4b_bitrate?: string | null;
+  job_pause_line_ms?: number | null;
+  job_pause_chapter_ms?: number | null;
+  job_speak_chapter_titles?: boolean | null;
+  job_pause_before_chapter_title_ms?: number | null;
+  job_pause_after_chapter_title_ms?: number | null;
+  job_frames_after_eos?: number | null;
+  job_apostrophe_mode?: string | null;
+  job_nlp_execution_mode?: 'local' | 'modal' | null;
+  job_attribution_execution_mode?: 'local' | 'modal' | null;
+  job_character_discovery_method?: string | null;
+  job_attribution_provider?: string | null;
+  job_attribution_model?: string | null;
 }
 
 export const fetchQueue = () => apiRequest<QueueResponse>('/queue');

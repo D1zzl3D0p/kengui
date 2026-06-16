@@ -119,4 +119,40 @@ describe('Dashboard', () => {
     await userEvent.click(screen.getByRole('button', { name: /start/i }));
     expect(queueApi.startQueue).toHaveBeenCalled();
   });
+
+  it('shows immediate feedback while starting the queue', async () => {
+    vi.mocked(queueApi.startQueue).mockImplementation(
+      () => new Promise(() => {})
+    );
+    vi.mocked(queueApi.fetchQueue).mockResolvedValue({
+      items: [{ ...mockJob, status: 'pending' }],
+      current_item: null,
+      pending_count: 1,
+      completed_count: 0,
+      failed_count: 0,
+    });
+    renderDashboard();
+    await waitFor(() => screen.getByText('Test Book'));
+    await userEvent.click(screen.getByRole('button', { name: /start/i }));
+
+    expect(screen.getByRole('button', { name: /starting/i })).toBeDisabled();
+    expect(screen.getByText('processing')).toBeInTheDocument();
+    expect(screen.getByText('Starting conversion...')).toBeInTheDocument();
+  });
+
+  it('shows start errors inline', async () => {
+    vi.mocked(queueApi.startQueue).mockRejectedValue(new Error('already running'));
+    vi.mocked(queueApi.fetchQueue).mockResolvedValue({
+      items: [{ ...mockJob, status: 'pending' }],
+      current_item: null,
+      pending_count: 1,
+      completed_count: 0,
+      failed_count: 0,
+    });
+    renderDashboard();
+    await waitFor(() => screen.getByText('Test Book'));
+    await userEvent.click(screen.getByRole('button', { name: /start/i }));
+
+    await waitFor(() => expect(screen.getByText('already running')).toBeInTheDocument());
+  });
 });

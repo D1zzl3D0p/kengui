@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import Step4Review from './Step4Review';
+import { ApiError } from '../../api/client';
 import type { WizardState } from './index';
 import type { JobResponse } from '../../api/queue';
 
@@ -88,6 +89,51 @@ describe('Step4Review', () => {
     });
   });
 
+  it('submits a valid narrator voice for multi-voice jobs', async () => {
+    mockCreateJob.mockResolvedValue(mockJobResponse);
+
+    render(
+      <Step4Review
+        state={{ ...mockState, narrationMode: 'multi', voice: 'alba' }}
+        onBack={vi.fn()}
+        onDone={vi.fn()}
+      />
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /submit/i }));
+
+    await waitFor(() => {
+      expect(mockCreateJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          voice: 'alba',
+          narration_mode: 'multi',
+        })
+      );
+    });
+  });
+
+  it('still completes when the job is submitted but queue start fails', async () => {
+    mockCreateJob.mockResolvedValue(mockJobResponse);
+    mockStartQueue.mockRejectedValue(new ApiError(400, 'Processing already in progress'));
+    const onDone = vi.fn();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    render(
+      <Step4Review state={mockState} onBack={vi.fn()} onDone={onDone} />
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /submit/i }));
+
+    await waitFor(() => {
+      expect(mockCreateJob).toHaveBeenCalled();
+      expect(mockStartQueue).toHaveBeenCalled();
+      expect(onDone).toHaveBeenCalled();
+    });
+
+    expect(screen.queryByText(/failed to submit/i)).not.toBeInTheDocument();
+    warn.mockRestore();
+  });
+
   it('shows error message when createJob fails', async () => {
     mockCreateJob.mockRejectedValue(new Error('Server error'));
 
@@ -98,7 +144,21 @@ describe('Step4Review', () => {
     await userEvent.click(screen.getByRole('button', { name: /submit/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/failed to submit/i)).toBeInTheDocument();
+      expect(screen.getByText(/failed to submit job: server error/i)).toBeInTheDocument();
+    });
+  });
+
+  it('shows backend detail when createJob returns an API error', async () => {
+    mockCreateJob.mockRejectedValue(new ApiError(422, '{"detail":"Invalid voice"}'));
+
+    render(
+      <Step4Review state={mockState} onBack={vi.fn()} onDone={vi.fn()} />
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /submit/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/failed to submit job: invalid voice/i)).toBeInTheDocument();
     });
   });
 });

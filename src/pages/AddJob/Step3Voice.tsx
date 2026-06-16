@@ -6,6 +6,7 @@ import type { VoiceResponse } from '../../api/voices';
 import type { NarrationMode } from '../../api/queue';
 
 type NlpMode = 'booknlp' | 'ollama';
+const DEFAULT_NARRATOR_VOICE = 'alba';
 
 interface Step3Data {
   narrationMode: NarrationMode;
@@ -43,10 +44,11 @@ export default function Step3Voice({ onBack, onNext }: Props) {
   }, []);
 
   function handleNext() {
+    const narratorVoice = selectedVoice || DEFAULT_NARRATOR_VOICE;
     if (narrationMode === 'single') {
-      onNext({ narrationMode: 'single', voice: selectedVoice });
+      onNext({ narrationMode: 'single', voice: narratorVoice });
     } else {
-      onNext({ narrationMode: 'multi', voice: '', nlpMode });
+      onNext({ narrationMode: 'multi', voice: narratorVoice, nlpMode });
     }
   }
 

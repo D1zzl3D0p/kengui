@@ -6,13 +6,17 @@ import { StatusBadge } from '../components/StatusBadge';
 import { ProgressBar } from '../components/ProgressBar';
 import { Button } from '../components/ui/button';
 import { fetchQueue, pauseJob, resumeJob, cancelJob, startQueue } from '../api/queue';
-import type { JobResponse } from '../api/queue';
+import type { JobResponse, QueueResponse } from '../api/queue';
 
 function formatEta(seconds: number): string {
   if (seconds <= 0) return '—';
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function JobRow({ job }: { job: JobResponse }) {
@@ -22,7 +26,41 @@ function JobRow({ job }: { job: JobResponse }) {
   const pause = useMutation({ mutationFn: () => pauseJob(job.id), onSuccess: invalidate });
   const resume = useMutation({ mutationFn: () => resumeJob(job.id), onSuccess: invalidate });
   const cancel = useMutation({ mutationFn: () => cancelJob(job.id), onSuccess: invalidate });
-  const start = useMutation({ mutationFn: startQueue, onSuccess: invalidate });
+  const start = useMutation({
+    mutationFn: startQueue,
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: ['queue'] });
+      const previous = qc.getQueryData<QueueResponse>(['queue']);
+      qc.setQueryData<QueueResponse>(['queue'], (current) => {
+        if (!current) return current;
+        let optimisticJob: JobResponse | null = null;
+        const items = current.items.map((item) => {
+          if (item.id !== job.id) return item;
+          optimisticJob = {
+            ...item,
+            status: 'processing',
+            current_chapter: 'Starting conversion...',
+            provider_status: 'starting',
+            started_at: item.started_at || Date.now() / 1000,
+          };
+          return optimisticJob;
+        });
+        return {
+          ...current,
+          items,
+          current_item: current.current_item ?? optimisticJob,
+          pending_count: Math.max(0, current.pending_count - (optimisticJob ? 1 : 0)),
+        };
+      });
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        qc.setQueryData(['queue'], context.previous);
+      }
+    },
+    onSettled: invalidate,
+  });
 
   const name = (job.job as { name?: string }).name ?? job.id;
   const progressValue = job.progress > 1 ? job.progress / 100 : job.progress;
@@ -72,8 +110,23 @@ function JobRow({ job }: { job: JobResponse }) {
         <p className="text-xs text-muted-foreground">{job.provider_status}</p>
       )}
 
+      {start.isError && (
+        <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {errorMessage(start.error, 'Failed to start queue.')}
+        </p>
+      )}
+
       <div className="flex flex-wrap gap-2">
-        {job.status === 'pending' && (
+        {start.isPending ? (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled
+          >
+            <CirclePlay aria-hidden="true" />
+            Starting...
+          </Button>
+        ) : job.status === 'pending' && (
           <Button size="sm" variant="outline" onClick={() => start.mutate()}>
             <CirclePlay aria-hidden="true" />
             Start
@@ -109,6 +162,7 @@ export default function Dashboard() {
     queryFn: fetchQueue,
     refetchInterval: 2000,
   });
+  const processingCount = data?.items.filter((job) => job.status === 'processing').length ?? 0;
 
   return (
     <Layout>
@@ -125,6 +179,27 @@ export default function Dashboard() {
           Add Book
         </Button>
       </div>
+
+      {data && (
+        <div className="mb-4 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+          <div className="rounded-md border bg-card px-3 py-2">
+            <span className="block text-xs text-muted-foreground">Pending</span>
+            <span className="font-medium">{data.pending_count}</span>
+          </div>
+          <div className="rounded-md border bg-card px-3 py-2">
+            <span className="block text-xs text-muted-foreground">Processing</span>
+            <span className="font-medium">{processingCount}</span>
+          </div>
+          <div className="rounded-md border bg-card px-3 py-2">
+            <span className="block text-xs text-muted-foreground">Completed</span>
+            <span className="font-medium">{data.completed_count}</span>
+          </div>
+          <div className="rounded-md border bg-card px-3 py-2">
+            <span className="block text-xs text-muted-foreground">Failed</span>
+            <span className="font-medium">{data.failed_count}</span>
+          </div>
+        </div>
+      )}
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
       {isError && (

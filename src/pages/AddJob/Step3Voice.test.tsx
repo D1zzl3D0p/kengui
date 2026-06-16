@@ -106,7 +106,7 @@ describe('Step3Voice', () => {
     expect(onNext).toHaveBeenCalledWith({ narrationMode: 'single', voice: 'dave' });
   });
 
-  it('Next button calls onNext with multi mode and nlp_mode', async () => {
+  it('Next button calls onNext with multi mode, nlp_mode, and narrator voice', async () => {
     mockFetchVoices.mockResolvedValue(mockVoiceList);
     const onNext = vi.fn();
 
@@ -122,7 +122,7 @@ describe('Step3Voice', () => {
     await userEvent.click(screen.getByRole('button', { name: /next/i }));
 
     expect(onNext).toHaveBeenCalledWith(
-      expect.objectContaining({ narrationMode: 'multi' })
+      expect.objectContaining({ narrationMode: 'multi', voice: 'alba', nlpMode: 'booknlp' })
     );
   });
 });

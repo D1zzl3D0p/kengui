@@ -1,10 +1,17 @@
-import { useEffect, useState } from 'react';
-import { RefreshCw, RotateCcw, Server } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Check, Copy, RefreshCw, RotateCcw, Server } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { Button } from '../components/ui/button';
 import { useConnectionStore } from '../store/connection';
 import type { ServerMode } from '../store/connection';
 import { createRuntimeAdapter, type LocalRuntimeStatus, type RuntimeHealth } from '../runtime/runtime';
+
+type LogOrder = 'newest' | 'oldest';
+
+function lineMatchesSeverity(line: string, filter: string): boolean {
+  if (filter === 'all') return true;
+  return line.toLowerCase().includes(filter);
+}
 
 export default function Settings() {
   const { serverMode, serverUrl, setServerMode } = useConnectionStore();
@@ -13,29 +20,50 @@ export default function Settings() {
   const [saved, setSaved] = useState(false);
   const [health, setHealth] = useState<RuntimeHealth | null>(null);
   const [status, setStatus] = useState<LocalRuntimeStatus | null>(null);
+  const [logs, setLogs] = useState<string[]>([]);
   const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  const [logOrder, setLogOrder] = useState<LogOrder>('newest');
+  const [logFilter, setLogFilter] = useState('all');
+  const [copied, setCopied] = useState(false);
+
+  const visibleLogs = useMemo(() => {
+    const filtered = logs.filter((line) => lineMatchesSeverity(line, logFilter));
+    return logOrder === 'newest' ? [...filtered].reverse() : filtered;
+  }, [logFilter, logOrder, logs]);
 
   async function refreshDiagnostics() {
     const runtime = createRuntimeAdapter(serverMode, serverUrl);
+    setRefreshing(true);
     setDiagnosticError(null);
     try {
-      const [nextHealth, nextStatus] = await Promise.all([
+      const [nextHealth, nextStatus, nextLogs] = await Promise.all([
         runtime.health(),
         runtime.status(),
+        serverMode === 'local' ? runtime.logs() : Promise.resolve([]),
       ]);
       setHealth(nextHealth);
       setStatus(nextStatus);
+      setLogs(nextLogs);
     } catch (error) {
       setHealth(null);
       if (serverMode === 'local') {
         try {
-          setStatus(await runtime.status());
+          const [nextStatus, nextLogs] = await Promise.all([
+            runtime.status(),
+            runtime.logs(),
+          ]);
+          setStatus(nextStatus);
+          setLogs(nextLogs);
         } catch {
           setStatus(null);
+          setLogs([]);
         }
       }
       setDiagnosticError(error instanceof Error ? error.message : 'Runtime check failed.');
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -61,6 +89,13 @@ export default function Settings() {
     } finally {
       setRestarting(false);
     }
+  }
+
+  async function handleCopyLogs() {
+    if (visibleLogs.length === 0) return;
+    await navigator.clipboard.writeText(visibleLogs.join('\n'));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   }
 
   return (
@@ -169,9 +204,14 @@ export default function Settings() {
         <section className="flex flex-col gap-4 rounded-lg border bg-card p-5 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-2xl font-semibold">Runtime</h2>
-            <Button variant="outline" size="sm" onClick={refreshDiagnostics}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={refreshDiagnostics}
+              disabled={refreshing}
+            >
               <RefreshCw aria-hidden="true" />
-              Refresh
+              {refreshing ? 'Refreshing...' : 'Refresh'}
             </Button>
           </div>
 
@@ -185,12 +225,24 @@ export default function Settings() {
               <dd>{health?.status ?? 'Unavailable'}</dd>
               <dt className="text-muted-foreground">Version</dt>
               <dd>{health?.server_version ?? health?.version ?? 'Unknown'}</dd>
+              {health?.api_version && (
+                <>
+                  <dt className="text-muted-foreground">API</dt>
+                  <dd>{health.api_version}</dd>
+                </>
+              )}
               {status && (
                 <>
                   <dt className="text-muted-foreground">Process</dt>
                   <dd>{status.running ? `Running (${status.pid ?? 'unknown pid'})` : 'Stopped'}</dd>
                   <dt className="text-muted-foreground">Runtime</dt>
                   <dd>{status.available ? 'Available' : 'Missing'}</dd>
+                  {status.last_error && (
+                    <>
+                      <dt className="text-muted-foreground">Last error</dt>
+                      <dd className="break-words">{status.last_error}</dd>
+                    </>
+                  )}
                 </>
               )}
             </dl>
@@ -214,11 +266,56 @@ export default function Settings() {
                 {restarting ? 'Restarting...' : 'Restart local server'}
               </Button>
 
-              {status && status.log_tail.length > 0 && (
-                <pre className="max-h-48 overflow-auto rounded-md border bg-muted p-3 font-mono text-xs">
-                  {status.log_tail.slice(-20).join('\n')}
-                </pre>
-              )}
+              <div className="rounded-md border bg-background/45">
+                <div className="flex flex-col gap-3 border-b p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="font-medium">Local server logs</h3>
+                    <p className="text-xs text-muted-foreground">
+                      {logs.length} retained line{logs.length === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <select
+                      aria-label="Log severity"
+                      className="h-8 rounded-md border bg-card px-2 text-sm"
+                      value={logFilter}
+                      onChange={(event) => setLogFilter(event.target.value)}
+                    >
+                      <option value="all">All</option>
+                      <option value="error">Errors</option>
+                      <option value="warning">Warnings</option>
+                      <option value="info">Info</option>
+                    </select>
+                    <select
+                      aria-label="Log order"
+                      className="h-8 rounded-md border bg-card px-2 text-sm"
+                      value={logOrder}
+                      onChange={(event) => setLogOrder(event.target.value as LogOrder)}
+                    >
+                      <option value="newest">Newest first</option>
+                      <option value="oldest">Oldest first</option>
+                    </select>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCopyLogs}
+                      disabled={visibleLogs.length === 0}
+                    >
+                      {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+                      {copied ? 'Copied' : 'Copy'}
+                    </Button>
+                  </div>
+                </div>
+                {visibleLogs.length > 0 ? (
+                  <pre className="max-h-72 overflow-auto p-3 font-mono text-xs leading-5">
+                    {visibleLogs.join('\n')}
+                  </pre>
+                ) : (
+                  <p className="p-4 text-sm text-muted-foreground">
+                    No log lines match the current diagnostics view.
+                  </p>
+                )}
+              </div>
             </>
           )}
         </section>

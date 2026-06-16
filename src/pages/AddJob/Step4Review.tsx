@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { ApiError } from '../../api/client';
 import { createJob, startQueue } from '../../api/queue';
 import type { WizardState } from './index';
 
@@ -15,6 +16,26 @@ export default function Step4Review({ state, onBack, onDone }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const title = state.book.metadata?.title as string | undefined;
+
+  function formatSubmitError(error: unknown): string {
+    if (error instanceof ApiError) {
+      try {
+        const body = JSON.parse(error.message) as { detail?: unknown };
+        if (typeof body.detail === 'string' && body.detail.trim()) {
+          return `Failed to submit job: ${body.detail}`;
+        }
+      } catch {
+        // Fall through to the raw response text below.
+      }
+      if (error.message.trim()) {
+        return `Failed to submit job: ${error.message}`;
+      }
+    }
+    if (error instanceof Error && error.message.trim()) {
+      return `Failed to submit job: ${error.message}`;
+    }
+    return 'Failed to submit job. Please try again.';
+  }
 
   async function handleSubmit() {
     setLoading(true);
@@ -35,10 +56,14 @@ export default function Step4Review({ state, onBack, onDone }: Props) {
         speaker_voices: {},
         chapter_voices: {},
       });
-      await startQueue();
+      try {
+        await startQueue();
+      } catch (error) {
+        console.warn('Job submitted, but the queue could not be started.', error);
+      }
       onDone();
-    } catch {
-      setError('Failed to submit job. Please try again.');
+    } catch (error) {
+      setError(formatSubmitError(error));
     } finally {
       setLoading(false);
     }
