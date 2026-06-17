@@ -15,21 +15,25 @@ const mockFilterChapters = filterChapters as ReturnType<typeof vi.fn>;
 const mockBook: BookParseResponse = {
   book_hash: 'abc123',
   metadata: { title: 'Test Book', author: 'Test Author' },
-  chapters: [],
-  total_chapters: 2,
-  total_word_count: 5000,
+  chapters: [
+    { index: 0, title: 'Front Matter', word_count: 500, paragraph_count: 10, toc_index: 0, tags: {} },
+    { index: 1, title: 'Chapter 1', word_count: 2500, paragraph_count: 10, toc_index: 1, tags: {} },
+    { index: 2, title: 'Chapter 2', word_count: 3000, paragraph_count: 10, toc_index: 2, tags: {} },
+  ],
+  total_chapters: 3,
+  total_word_count: 6000,
 };
 
-const makeFilterResponse = (chapters: { index: number; title: string; word_count: number }[]): ChapterFilterResponse => ({
-  included_indices: chapters.map((c) => c.index),
-  chapter_count: chapters.length,
-  estimated_word_count: chapters.reduce((sum, c) => sum + c.word_count, 0),
-  chapters: chapters.map((c) => ({
-    index: c.index,
-    title: c.title,
-    word_count: c.word_count,
+const makeFilterResponse = (includedIndices: number[]): ChapterFilterResponse => ({
+  included_indices: includedIndices,
+  chapter_count: includedIndices.length,
+  estimated_word_count: includedIndices.length * 1000,
+  chapters: includedIndices.map((index) => ({
+    index,
+    title: `Chapter ${index + 1}`,
+    word_count: 1000,
     paragraph_count: 10,
-    toc_index: c.index,
+    toc_index: index,
     tags: {},
   })),
 });
@@ -39,67 +43,67 @@ describe('Step2Chapters', () => {
     vi.clearAllMocks();
   });
 
-  it('renders preset selector and initial filtered chapters on mount', async () => {
-    mockFilterChapters.mockResolvedValue(
-      makeFilterResponse([
-        { index: 0, title: 'Chapter 1', word_count: 2500 },
-        { index: 1, title: 'Chapter 2', word_count: 2500 },
-      ])
-    );
+  it('renders the full chapter list and applies the initial preset selection', async () => {
+    mockFilterChapters.mockResolvedValue(makeFilterResponse([1, 2]));
 
     render(<Step2Chapters book={mockBook} onBack={vi.fn()} onNext={vi.fn()} />);
 
+    expect(screen.getByText('Front Matter')).toBeInTheDocument();
+    expect(screen.getByText('Chapter 1')).toBeInTheDocument();
+    expect(screen.getByText('Chapter 2')).toBeInTheDocument();
+
     await waitFor(() => {
-      expect(screen.getByText('Chapter 1')).toBeInTheDocument();
-      expect(screen.getByText('Chapter 2')).toBeInTheDocument();
+      expect(screen.getByLabelText('Front Matter')).not.toBeChecked();
+      expect(screen.getByLabelText('Chapter 1')).toBeChecked();
+      expect(screen.getByLabelText('Chapter 2')).toBeChecked();
     });
 
-    expect(screen.getByRole('combobox')).toBeInTheDocument();
     expect(mockFilterChapters).toHaveBeenCalledWith('abc123', 'content-only');
   });
 
-  it('changing preset re-fetches chapters', async () => {
+  it('changing the preset reapplies the bulk chapter selection', async () => {
     mockFilterChapters
-      .mockResolvedValueOnce(
-        makeFilterResponse([{ index: 0, title: 'Chapter 1', word_count: 2500 }])
-      )
-      .mockResolvedValueOnce(
-        makeFilterResponse([
-          { index: 0, title: 'Part One', word_count: 1000 },
-          { index: 1, title: 'Chapter A', word_count: 3000 },
-        ])
-      );
+      .mockResolvedValueOnce(makeFilterResponse([1]))
+      .mockResolvedValueOnce(makeFilterResponse([0, 1, 2]));
 
     render(<Step2Chapters book={mockBook} onBack={vi.fn()} onNext={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByText('Chapter 1')).toBeInTheDocument();
+      expect(screen.getByLabelText('Chapter 1')).toBeChecked();
+      expect(screen.getByLabelText('Chapter 2')).not.toBeChecked();
     });
 
-    const select = screen.getByRole('combobox');
-    await userEvent.selectOptions(select, 'with-parts');
+    await userEvent.selectOptions(screen.getByRole('combobox'), 'none');
 
     await waitFor(() => {
-      expect(mockFilterChapters).toHaveBeenCalledWith('abc123', 'with-parts');
-      expect(screen.getByText('Part One')).toBeInTheDocument();
-      expect(screen.getByText('Chapter A')).toBeInTheDocument();
+      expect(mockFilterChapters).toHaveBeenCalledWith('abc123', 'none');
+      expect(screen.getByLabelText('Front Matter')).toBeChecked();
+      expect(screen.getByLabelText('Chapter 1')).toBeChecked();
+      expect(screen.getByLabelText('Chapter 2')).toBeChecked();
     });
   });
 
-  it('Next button calls onNext with selected preset', async () => {
-    mockFilterChapters.mockResolvedValue(
-      makeFilterResponse([{ index: 0, title: 'Chapter 1', word_count: 2500 }])
-    );
+  it('manual chapter edits are submitted as a custom selection', async () => {
+    mockFilterChapters.mockResolvedValue(makeFilterResponse([1, 2]));
 
     const onNext = vi.fn();
     render(<Step2Chapters book={mockBook} onBack={vi.fn()} onNext={onNext} />);
 
     await waitFor(() => {
-      expect(screen.getByText('Chapter 1')).toBeInTheDocument();
+      expect(screen.getByLabelText('Front Matter')).not.toBeChecked();
     });
+
+    await userEvent.click(screen.getByLabelText('Front Matter'));
 
     await userEvent.click(screen.getByRole('button', { name: /next/i }));
 
-    expect(onNext).toHaveBeenCalledWith({ chapterPreset: 'content-only' });
+    expect(onNext).toHaveBeenCalledWith({
+      chapterPreset: 'custom',
+      chapterSelection: {
+        preset: 'custom',
+        included: [0, 1, 2],
+        excluded: [],
+      },
+    });
   });
 });

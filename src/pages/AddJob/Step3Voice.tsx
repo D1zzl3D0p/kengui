@@ -1,30 +1,58 @@
-import { useState, useEffect } from 'react';
-import { Mic2, UsersRound } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Mic2, RefreshCw, UsersRound } from 'lucide-react';
 import { Button } from '../../components/ui/button';
-import { fetchVoices } from '../../api/voices';
-import type { VoiceResponse } from '../../api/voices';
+import { analyzeBook, type AnalysisCharacter, type AnalysisResult } from '../../api/books';
+import { fetchTask, type TaskResponse } from '../../api/tasks';
+import { fetchMultivoiceStatus, type MultivoiceStatusResponse } from '../../api/status';
+import { fetchVoices, suggestCast, type VoiceResponse } from '../../api/voices';
 import type { NarrationMode } from '../../api/queue';
 
-type NlpMode = 'booknlp' | 'ollama';
 const DEFAULT_NARRATOR_VOICE = 'alba';
 
 interface Step3Data {
   narrationMode: NarrationMode;
   voice: string;
-  nlpMode?: NlpMode;
+  nlpProvider?: string;
+  nlpModel?: string;
+  speakerVoices?: Record<string, string>;
+  annotatedChaptersPath?: string | null;
+  rosterCachePath?: string | null;
+  characters?: AnalysisCharacter[];
 }
 
 interface Props {
+  filePath: string;
   onBack: () => void;
   onNext: (data: Step3Data) => void;
 }
 
-export default function Step3Voice({ onBack, onNext }: Props) {
+async function pollAnalysisTask(
+  taskId: string,
+  onUpdate: (task: TaskResponse<AnalysisResult>) => void
+) {
+  for (;;) {
+    const task = await fetchTask<AnalysisResult>(taskId);
+    onUpdate(task);
+    if (task.status === 'completed' || task.status === 'failed') {
+      return task;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 900));
+  }
+}
+
+export default function Step3Voice({ filePath, onBack, onNext }: Props) {
   const [narrationMode, setNarrationMode] = useState<NarrationMode>('single');
   const [voices, setVoices] = useState<VoiceResponse[]>([]);
   const [selectedVoice, setSelectedVoice] = useState<string>('');
-  const [nlpMode, setNlpMode] = useState<NlpMode>('booknlp');
+  const [nlpProvider, setNlpProvider] = useState('ollama');
+  const [nlpModel, setNlpModel] = useState('llama3.2');
+  const [multivoiceStatus, setMultivoiceStatus] = useState<MultivoiceStatusResponse | null>(null);
+  const [analysisTask, setAnalysisTask] = useState<TaskResponse<AnalysisResult> | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [speakerVoices, setSpeakerVoices] = useState<Record<string, string>>({});
+  const [castWarnings, setCastWarnings] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -32,9 +60,8 @@ export default function Step3Voice({ onBack, onNext }: Props) {
     setError(null);
     fetchVoices()
       .then((data) => {
-        const available = data.voices.filter((v) => !v.excluded);
-        setVoices(available);
-        const firstVoice = available[0];
+        setVoices(data.voices);
+        const firstVoice = data.voices.find((v) => !v.excluded);
         if (firstVoice) {
           setSelectedVoice(firstVoice.name);
         }
@@ -43,23 +70,95 @@ export default function Step3Voice({ onBack, onNext }: Props) {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (narrationMode !== 'multi') return;
+    fetchMultivoiceStatus()
+      .then(setMultivoiceStatus)
+      .catch(() => setMultivoiceStatus(null));
+  }, [narrationMode]);
+
+  useEffect(() => {
+    setSpeakerVoices((current) =>
+      Object.keys(current).length > 0 ? { ...current, NARRATOR: selectedVoice } : current
+    );
+  }, [selectedVoice]);
+
+  const availableVoices = useMemo(
+    () => voices.filter((voice) => !voice.excluded),
+    [voices]
+  );
+  const excludedVoiceNames = useMemo(
+    () => voices.filter((voice) => voice.excluded).map((voice) => voice.name),
+    [voices]
+  );
+
+  async function runAnalysis() {
+    const narratorVoice = selectedVoice || DEFAULT_NARRATOR_VOICE;
+    setAnalyzing(true);
+    setError(null);
+    setCastWarnings([]);
+    setAnalysisResult(null);
+    try {
+      const task = await analyzeBook({
+        ebook_path: filePath,
+        nlp_provider: nlpProvider,
+        nlp_model: nlpModel,
+        attribution_provider: nlpProvider,
+        attribution_model: nlpModel,
+      });
+      setAnalysisTask(task);
+      const completed = await pollAnalysisTask(task.task_id, setAnalysisTask);
+      if (completed.status === 'failed' || !completed.result) {
+        throw new Error(completed.error ?? 'Analysis failed.');
+      }
+      setAnalysisResult(completed.result);
+      const suggested = await suggestCast(
+        completed.result.characters,
+        excludedVoiceNames,
+        narratorVoice
+      );
+      setCastWarnings(suggested.warnings);
+      setSpeakerVoices({
+        NARRATOR: narratorVoice,
+        ...suggested.speaker_voices,
+      });
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Analysis failed.');
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
   function handleNext() {
     const narratorVoice = selectedVoice || DEFAULT_NARRATOR_VOICE;
     if (narrationMode === 'single') {
       onNext({ narrationMode: 'single', voice: narratorVoice });
-    } else {
-      onNext({ narrationMode: 'multi', voice: narratorVoice, nlpMode });
+      return;
     }
+    if (!analysisResult) return;
+    onNext({
+      narrationMode: 'multi',
+      voice: narratorVoice,
+      nlpProvider,
+      nlpModel,
+      speakerVoices: { ...speakerVoices, NARRATOR: narratorVoice },
+      annotatedChaptersPath: analysisResult.annotated_chapters_path,
+      rosterCachePath: analysisResult.roster_cache_path,
+      characters: analysisResult.characters,
+    });
   }
 
-  const nextDisabled = loading || (narrationMode === 'single' && !selectedVoice);
+  const nextDisabled =
+    loading ||
+    !selectedVoice ||
+    (narrationMode === 'multi' && (!analysisResult || analyzing));
 
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h2 className="text-2xl font-semibold">Choose voice</h2>
         <p className="text-muted-foreground text-sm mt-1">
-          Choose how the audiobook will be narrated.
+          Choose the narrator voice and optional character cast.
         </p>
       </div>
 
@@ -82,62 +181,122 @@ export default function Step3Voice({ onBack, onNext }: Props) {
         </Button>
       </div>
 
-      {narrationMode === 'single' && (
-        <div className="flex flex-col gap-2 rounded-lg border bg-card p-4 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
-          <label htmlFor="voice-select" className="text-sm font-medium">
-            Voice
-          </label>
-          {loading && (
-            <p className="text-sm text-muted-foreground">Loading voices…</p>
-          )}
-          {error && (
-            <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
+      <div className="flex flex-col gap-2 rounded-lg border bg-card p-4 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
+        <label htmlFor="voice-select" className="text-sm font-medium">
+          Narrator voice
+        </label>
+        {loading && (
+          <p className="text-sm text-muted-foreground">Loading voices...</p>
+        )}
+        {!loading && (
+          <select
+            id="voice-select"
+            value={selectedVoice}
+            onChange={(e) => setSelectedVoice(e.target.value)}
+            className="min-h-10 rounded-md border border-input bg-card px-3 py-2 text-sm"
+          >
+            {availableVoices.map((v) => (
+              <option key={v.name} value={v.name}>
+                {v.display_label}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      {narrationMode === 'multi' && (
+        <div className="flex flex-col gap-4 rounded-lg border bg-card p-4 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
+          <div className="grid gap-3 md:grid-cols-2">
+            <label htmlFor="nlp-provider-select" className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">NLP provider</span>
+              <select
+                id="nlp-provider-select"
+                value={nlpProvider}
+                onChange={(e) => setNlpProvider(e.target.value)}
+                className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
+              >
+                <option value="ollama">Ollama</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="google">Google Gemini</option>
+              </select>
+            </label>
+            <label htmlFor="nlp-model-input" className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">NLP model</span>
+              <input
+                id="nlp-model-input"
+                value={nlpModel}
+                onChange={(e) => setNlpModel(e.target.value)}
+                className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
+              />
+            </label>
+          </div>
+
+          {multivoiceStatus && (
+            <p className="rounded-md border bg-background/45 px-3 py-2 text-sm text-muted-foreground">
+              {multivoiceStatus.message}
             </p>
           )}
-          {!loading && !error && (
-            <select
-              id="voice-select"
-              value={selectedVoice}
-              onChange={(e) => setSelectedVoice(e.target.value)}
-              className="min-h-10 rounded-md border border-input bg-card px-3 py-2 text-sm"
-            >
-              {voices.map((v) => (
-                <option key={v.name} value={v.name}>
-                  {v.display_label}
-                </option>
+
+          <Button className="w-fit" onClick={runAnalysis} disabled={analyzing || loading}>
+            <RefreshCw aria-hidden="true" />
+            {analyzing ? 'Analyzing...' : 'Analyze cast'}
+          </Button>
+
+          {analysisTask && (
+            <p className="rounded-md border bg-background/45 px-3 py-2 text-sm text-muted-foreground">
+              {analysisTask.status} {analysisTask.progress}% · {analysisTask.message}
+            </p>
+          )}
+
+          {castWarnings.length > 0 && (
+            <div className="rounded-md border border-[rgb(184_155_77_/_35%)] bg-[rgb(184_155_77_/_15%)] px-3 py-2 text-sm">
+              {castWarnings.join(' ')}
+            </div>
+          )}
+
+          {analysisResult && (
+            <div className="flex flex-col gap-3">
+              <h3 className="font-medium">Cast</h3>
+              {analysisResult.characters.map((character) => (
+                <label
+                  key={character.character_id}
+                  className="grid gap-2 rounded-md border bg-background/45 p-3 text-sm md:grid-cols-[minmax(0,1fr)_14rem]"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{character.display_name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {character.quote_count} quotes · {character.mention_count} mentions
+                    </span>
+                  </span>
+                  <select
+                    className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
+                    value={speakerVoices[character.character_id] ?? selectedVoice}
+                    onChange={(event) =>
+                      setSpeakerVoices((current) => ({
+                        ...current,
+                        [character.character_id]: event.target.value,
+                      }))
+                    }
+                  >
+                    {availableVoices.map((voice) => (
+                      <option key={voice.name} value={voice.name}>
+                        {voice.display_label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               ))}
-            </select>
+            </div>
           )}
         </div>
       )}
 
-      {narrationMode === 'multi' && (
-        <div className="flex flex-col gap-4 rounded-lg border bg-card p-4 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
-          <div className="flex flex-col gap-2">
-            <label htmlFor="nlp-mode-select" className="text-sm font-medium">
-              NLP mode
-            </label>
-            <select
-              id="nlp-mode-select"
-              value={nlpMode}
-              onChange={(e) => setNlpMode(e.target.value as NlpMode)}
-              className="min-h-10 rounded-md border border-input bg-card px-3 py-2 text-sm"
-            >
-              <option value="booknlp">BookNLP</option>
-              <option value="ollama">Ollama LLM</option>
-            </select>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Characters will be detected automatically. Gender-pooled voices are
-            assigned to each character.
-          </p>
-          {nlpMode === 'ollama' && (
-            <p className="rounded-md border border-[rgb(184_155_77_/_35%)] bg-[rgb(184_155_77_/_15%)] px-3 py-2 text-sm text-[var(--color-ink)]">
-              Ollama LLM may take longer to scan the book before narration begins.
-            </p>
-          )}
-        </div>
+      {error && (
+        <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
       )}
 
       <div className="flex justify-between">

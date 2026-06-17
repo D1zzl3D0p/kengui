@@ -45,16 +45,19 @@ export default function Step4Review({ state, onBack, onDone }: Props) {
         ebook_path: state.filePath,
         voice: state.voice,
         narration_mode: state.narrationMode,
-        chapter_selection: {
-          preset: state.chapterPreset,
-          included: [],
-          excluded: [],
-        },
+        chapter_selection: state.chapterSelection,
         name: title ?? null,
         output_path: null,
         tts_execution_mode: 'local',
-        speaker_voices: {},
+        speaker_voices: state.narrationMode === 'multi' ? state.speakerVoices ?? {} : {},
+        annotated_chapters_path:
+          state.narrationMode === 'multi' ? state.annotatedChaptersPath ?? null : null,
         chapter_voices: {},
+        roster_cache_path: state.narrationMode === 'multi' ? state.rosterCachePath ?? null : null,
+        job_nlp_provider: state.narrationMode === 'multi' ? state.nlpProvider ?? null : null,
+        job_nlp_model: state.narrationMode === 'multi' ? state.nlpModel ?? null : null,
+        job_attribution_provider: state.narrationMode === 'multi' ? state.nlpProvider ?? null : null,
+        job_attribution_model: state.narrationMode === 'multi' ? state.nlpModel ?? null : null,
       });
       try {
         await startQueue();
@@ -95,6 +98,16 @@ export default function Step4Review({ state, onBack, onDone }: Props) {
 
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Chapter selection
+          </span>
+          <span className="text-sm">
+            {state.chapterSelection.included.length} included,{' '}
+            {state.chapterSelection.excluded.length} excluded
+          </span>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
             Narration mode
           </span>
           <span className="text-sm capitalize">{state.narrationMode}</span>
@@ -107,6 +120,33 @@ export default function Step4Review({ state, onBack, onDone }: Props) {
             </span>
             <span className="text-sm">{state.voice}</span>
           </div>
+        )}
+
+        {state.narrationMode === 'multi' && (
+          <>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Narrator
+              </span>
+              <span className="text-sm">{state.voice}</span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                NLP
+              </span>
+              <span className="text-sm">
+                {state.nlpProvider} {state.nlpModel}
+              </span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Cast
+              </span>
+              <span className="text-sm">
+                {state.characters?.length ?? 0} character{state.characters?.length === 1 ? '' : 's'}
+              </span>
+            </div>
+          </>
         )}
       </div>
 

@@ -1,4 +1,5 @@
 import { apiRequest } from './client';
+import type { TaskResponse } from './tasks';
 
 export interface ChapterSummary {
   index: number;
@@ -32,6 +33,35 @@ export interface ChapterFilterResponse {
   chapters: ChapterSummary[];
 }
 
+export interface AnalysisCharacter {
+  character_id: string;
+  display_name: string;
+  quote_count: number;
+  mention_count: number;
+  gender_pronoun: string;
+}
+
+export interface AnalysisResult {
+  characters: AnalysisCharacter[];
+  book_hash: string;
+  annotated_chapters_path: string;
+  roster_cache_path: string | null;
+  nlp_provider: string;
+  nlp_model: string;
+  attribution_provider: string;
+  attribution_model: string;
+  cache_status: string;
+}
+
+export interface BookAnalyzeRequest {
+  ebook_path: string;
+  nlp_model?: string | null;
+  nlp_provider?: string | null;
+  discovery_method?: string | null;
+  attribution_provider?: string | null;
+  attribution_model?: string | null;
+}
+
 export const parseBook = (ebook_path: string) =>
   apiRequest<BookParseResponse>('/books/parse', {
     method: 'POST',
@@ -45,4 +75,10 @@ export const filterChapters = (book_hash: string, preset: ChapterPreset) =>
       book_hash,
       chapter_selection: { preset, included: [], excluded: [] },
     }),
+  });
+
+export const analyzeBook = (request: BookAnalyzeRequest) =>
+  apiRequest<TaskResponse<AnalysisResult>>('/books/analyze', {
+    method: 'POST',
+    body: JSON.stringify(request),
   });

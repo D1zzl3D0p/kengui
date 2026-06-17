@@ -93,3 +93,5 @@ export const resumeJob = (id: string) =>
   apiRequest<void>(`/queue/${id}/resume`, { method: 'POST' });
 export const cancelJob = (id: string) =>
   apiRequest<void>(`/queue/${id}`, { method: 'DELETE' });
+export const removeJob = (id: string) =>
+  apiRequest<void>(`/queue/${id}`, { method: 'DELETE' });

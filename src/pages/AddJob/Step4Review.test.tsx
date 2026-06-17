@@ -30,6 +30,11 @@ const mockState: WizardState = {
     total_word_count: 80000,
   },
   chapterPreset: 'content-only',
+  chapterSelection: {
+    preset: 'content-only',
+    included: [0, 1, 2],
+    excluded: [3, 4, 5, 6, 7, 8, 9],
+  },
   narrationMode: 'single',
   voice: 'alba',
 };
@@ -81,7 +86,11 @@ describe('Step4Review', () => {
           voice: 'alba',
           narration_mode: 'single',
           tts_execution_mode: 'local',
-          chapter_selection: expect.objectContaining({ preset: 'content-only' }),
+          chapter_selection: expect.objectContaining({
+            preset: 'content-only',
+            included: [0, 1, 2],
+            excluded: [3, 4, 5, 6, 7, 8, 9],
+          }),
         })
       );
       expect(mockStartQueue).toHaveBeenCalled();
@@ -107,6 +116,55 @@ describe('Step4Review', () => {
         expect.objectContaining({
           voice: 'alba',
           narration_mode: 'multi',
+          speaker_voices: {},
+          annotated_chapters_path: null,
+        })
+      );
+    });
+  });
+
+  it('submits multi-voice analysis and cast fields', async () => {
+    mockCreateJob.mockResolvedValue(mockJobResponse);
+
+    render(
+      <Step4Review
+        state={{
+          ...mockState,
+          narrationMode: 'multi',
+          voice: 'alba',
+          nlpProvider: 'openrouter',
+          nlpModel: 'openai/gpt-4.1-mini',
+          speakerVoices: { NARRATOR: 'alba', alice: 'dave' },
+          annotatedChaptersPath: '/cache/annotated.json',
+          rosterCachePath: '/cache/roster.json',
+          characters: [
+            {
+              character_id: 'alice',
+              display_name: 'Alice',
+              quote_count: 4,
+              mention_count: 12,
+              gender_pronoun: 'she',
+            },
+          ],
+        }}
+        onBack={vi.fn()}
+        onDone={vi.fn()}
+      />
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /submit/i }));
+
+    await waitFor(() => {
+      expect(mockCreateJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          narration_mode: 'multi',
+          speaker_voices: { NARRATOR: 'alba', alice: 'dave' },
+          annotated_chapters_path: '/cache/annotated.json',
+          roster_cache_path: '/cache/roster.json',
+          job_nlp_provider: 'openrouter',
+          job_nlp_model: 'openai/gpt-4.1-mini',
+          job_attribution_provider: 'openrouter',
+          job_attribution_model: 'openai/gpt-4.1-mini',
         })
       );
     });

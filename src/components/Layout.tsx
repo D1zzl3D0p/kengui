@@ -17,13 +17,13 @@ interface Props {
 const navItems = [
   { to: '/dashboard', label: 'Library', icon: Library },
   { to: '/add', label: 'Convert', icon: BookOpen },
-  { to: '/dashboard', label: 'Voices', icon: Waves, disabled: true },
+  { to: '/voices', label: 'Voices', icon: Waves },
   { to: '/dashboard', label: 'Audiobooks', icon: Headphones, disabled: true },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
 function isActive(pathname: string, to: string, label: string) {
-  if (label === 'Voices' || label === 'Audiobooks') return false;
+  if (label === 'Audiobooks') return false;
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
@@ -31,8 +31,8 @@ export function Layout({ children }: Props) {
   const location = useLocation();
 
   return (
-    <div className="min-h-screen bg-transparent text-foreground md:grid md:grid-cols-[15rem_minmax(0,1fr)]">
-      <aside className="hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex md:h-screen md:flex-col">
+    <div className="min-h-screen bg-transparent text-foreground md:grid md:min-h-screen md:grid-cols-[15rem_minmax(0,1fr)] md:items-stretch">
+      <aside className="hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex md:min-h-screen md:flex-col">
         <div className="flex items-center gap-3 border-b border-sidebar-border px-5 py-5">
           <span className="font-heading text-5xl font-semibold leading-none">K</span>
           <div>
@@ -87,7 +87,7 @@ export function Layout({ children }: Props) {
           })}
         </nav>
 
-        <div className="border-t border-sidebar-border p-4 text-xs leading-relaxed text-sidebar-foreground/68">
+        <div className="mt-auto border-t border-sidebar-border p-4 text-xs leading-relaxed text-sidebar-foreground/68">
           Local, external, and hosted runtimes share one calm conversion flow.
         </div>
       </aside>
@@ -110,7 +110,7 @@ export function Layout({ children }: Props) {
           </Link>
         </header>
 
-        <main className="flex-1 overflow-auto px-4 py-5 pb-24 md:h-screen md:px-8 md:py-8">
+        <main className="flex-1 overflow-auto px-4 py-5 pb-24 md:min-h-screen md:px-8 md:py-8">
           {children}
         </main>
 

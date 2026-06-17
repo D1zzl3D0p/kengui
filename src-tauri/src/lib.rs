@@ -1,9 +1,17 @@
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
+
 use tauri::{AppHandle, Emitter, Manager, State};
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 const LOG_TAIL_LIMIT: usize = 200;
+const SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(5);
+const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Default)]
 pub struct ServerProcess {
@@ -30,6 +38,20 @@ fn push_log(logs: &Arc<Mutex<Vec<String>>>, message: String) {
     }
 }
 
+fn handle_stdout_line(
+    line: String,
+    ready_emitted: &mut bool,
+    on_log: &mut impl FnMut(String),
+    on_ready: &mut impl FnMut(),
+) {
+    let is_ready = line.contains("KENKUI_SERVER_READY");
+    on_log(line);
+    if is_ready && !*ready_emitted {
+        *ready_emitted = true;
+        on_ready();
+    }
+}
+
 #[tauri::command]
 async fn check_server_runtime() -> bool {
     server_runtime_available()
@@ -43,10 +65,86 @@ fn server_command() -> Result<Command, String> {
     if let Ok(path) = which::which("kenkui") {
         let mut command = Command::new(path);
         command.arg("serve");
+        #[cfg(unix)]
+        {
+            command.process_group(0);
+        }
         return Ok(command);
     }
 
     Err("Could not find kenkui on PATH".to_string())
+}
+
+fn try_wait_for_exit(child: &mut Child) -> Result<bool, String> {
+    child
+        .try_wait()
+        .map(|status| status.is_some())
+        .map_err(|e| format!("Failed to inspect kenkui process: {e}"))
+}
+
+fn request_graceful_shutdown(child: &Child) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        let status = Command::new("/bin/kill")
+            .arg("-TERM")
+            .arg(format!("-{}", child.id()))
+            .status()
+            .map_err(|e| format!("Failed to signal kenkui process: {e}"))?;
+        if status.success() {
+            return Ok(());
+        }
+
+        return Err(format!(
+            "Failed to signal kenkui process: /bin/kill exited with {status}"
+        ));
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = child;
+        Ok(())
+    }
+}
+
+fn force_shutdown(child: &mut Child) -> Result<(), String> {
+    child
+        .kill()
+        .map_err(|e| format!("Failed to kill kenkui process: {e}"))
+}
+
+fn shutdown_child(child: &mut Child) -> Result<(), String> {
+    if try_wait_for_exit(child)? {
+        return Ok(());
+    }
+
+    request_graceful_shutdown(child)?;
+
+    let deadline = Instant::now() + SHUTDOWN_GRACE_PERIOD;
+    while Instant::now() < deadline {
+        if try_wait_for_exit(child)? {
+            return Ok(());
+        }
+        thread::sleep(SHUTDOWN_POLL_INTERVAL);
+    }
+
+    force_shutdown(child)?;
+    let _ = child.wait();
+    Ok(())
+}
+
+fn shutdown_server_process(state: &ServerProcess) -> Result<(), String> {
+    let mut lock = state.child.lock().unwrap();
+    let Some(child) = lock.as_mut() else {
+        return Ok(());
+    };
+
+    match shutdown_child(child) {
+        Ok(()) => {
+            lock.take();
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
 }
 
 #[tauri::command]
@@ -93,18 +191,20 @@ async fn spawn_server(app: AppHandle, state: State<'_, ServerProcess>) -> Result
     let logs = state.logs.clone();
     std::thread::spawn(move || {
         let reader = BufReader::new(stdout);
+        let mut ready_emitted = false;
         for line in reader.lines() {
             match line {
-                Ok(l) if l.contains("KENKUI_SERVER_READY") => {
-                    push_log(&logs, l);
-                    let _ = app_clone.emit("server-ready", ());
-                    break;
-                }
                 Ok(l) => {
-                    push_log(&logs, l);
+                    let mut on_log = |message: String| push_log(&logs, message);
+                    let mut on_ready = || {
+                        let _ = app_clone.emit("server-ready", ());
+                    };
+                    handle_stdout_line(l, &mut ready_emitted, &mut on_log, &mut on_ready);
                 }
                 Err(_) => {
-                    let _ = app_clone.emit("server-error", "stdout closed unexpectedly");
+                    if !ready_emitted {
+                        let _ = app_clone.emit("server-error", "stdout closed unexpectedly");
+                    }
                     break;
                 }
             }
@@ -130,14 +230,7 @@ async fn spawn_server(app: AppHandle, state: State<'_, ServerProcess>) -> Result
 
 #[tauri::command]
 async fn kill_server(state: State<'_, ServerProcess>) -> Result<(), String> {
-    let mut lock = state.child.lock().unwrap();
-    if let Some(mut child) = lock.take() {
-        child
-            .kill()
-            .map_err(|e| format!("Failed to kill kenkui process: {e}"))?;
-        let _ = child.wait();
-    }
-    Ok(())
+    shutdown_server_process(&state)
 }
 
 #[tauri::command]
@@ -180,7 +273,7 @@ async fn server_status(state: State<'_, ServerProcess>) -> Result<ServerStatus, 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .manage(ServerProcess::default())
@@ -191,17 +284,75 @@ pub fn run() {
             server_logs,
             server_status
         ])
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                if let Some(state) = window.try_state::<ServerProcess>() {
-                    let mut lock = state.child.lock().unwrap();
-                    if let Some(mut child) = lock.take() {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                    }
-                }
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| match event {
+        tauri::RunEvent::WindowEvent {
+            event: tauri::WindowEvent::CloseRequested { .. },
+            ..
+        }
+        | tauri::RunEvent::ExitRequested { .. } => {
+            if let Some(state) = app_handle.try_state::<ServerProcess>() {
+                let _ = shutdown_server_process(&state);
             }
-        })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        }
+        _ => {}
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn handle_stdout_line_emits_ready_once_and_keeps_logging() {
+        let mut ready_emitted = false;
+        let logs = Arc::new(Mutex::new(Vec::new()));
+        let ready_count = Arc::new(Mutex::new(0usize));
+        let ready_count_clone = Arc::clone(&ready_count);
+
+        let mut on_log = |message: String| push_log(&logs, message);
+        let mut on_ready = || {
+            *ready_count_clone.lock().unwrap() += 1;
+        };
+
+        handle_stdout_line(
+            "booting".to_string(),
+            &mut ready_emitted,
+            &mut on_log,
+            &mut on_ready,
+        );
+        handle_stdout_line(
+            "KENKUI_SERVER_READY".to_string(),
+            &mut ready_emitted,
+            &mut on_log,
+            &mut on_ready,
+        );
+        handle_stdout_line(
+            "still running".to_string(),
+            &mut ready_emitted,
+            &mut on_log,
+            &mut on_ready,
+        );
+        handle_stdout_line(
+            "KENKUI_SERVER_READY".to_string(),
+            &mut ready_emitted,
+            &mut on_log,
+            &mut on_ready,
+        );
+
+        assert_eq!(
+            logs.lock().unwrap().as_slice(),
+            &[
+                "booting".to_string(),
+                "KENKUI_SERVER_READY".to_string(),
+                "still running".to_string(),
+                "KENKUI_SERVER_READY".to_string(),
+            ]
+        );
+        assert_eq!(*ready_count.lock().unwrap(), 1);
+        assert!(ready_emitted);
+    }
 }

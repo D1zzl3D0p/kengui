@@ -5,15 +5,22 @@ import Step1Book from './Step1Book';
 import Step2Chapters from './Step2Chapters';
 import Step3Voice from './Step3Voice';
 import Step4Review from './Step4Review';
-import type { BookParseResponse, ChapterPreset } from '../../api/books';
-import type { NarrationMode } from '../../api/queue';
+import type { AnalysisCharacter, BookParseResponse, ChapterPreset } from '../../api/books';
+import type { ChapterSelection, NarrationMode } from '../../api/queue';
 
 export interface WizardState {
   filePath: string;
   book: BookParseResponse;
   chapterPreset: ChapterPreset;
+  chapterSelection: ChapterSelection;
   narrationMode: NarrationMode;
   voice: string;
+  nlpProvider?: string;
+  nlpModel?: string;
+  speakerVoices?: Record<string, string>;
+  annotatedChaptersPath?: string | null;
+  rosterCachePath?: string | null;
+  characters?: AnalysisCharacter[];
 }
 
 type Step = 1 | 2 | 3 | 4;
@@ -84,6 +91,7 @@ export default function AddJob() {
         )}
         {step === 3 && (
           <Step3Voice
+            filePath={_state.filePath!}
             onBack={() => setStep(2)}
             onNext={(data) => {
               setState((s) => ({ ...s, ...data }));

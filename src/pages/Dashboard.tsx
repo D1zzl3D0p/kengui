@@ -1,11 +1,19 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 import { BookOpen, CirclePause, CirclePlay, ListMusic, X } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { StatusBadge } from '../components/StatusBadge';
 import { ProgressBar } from '../components/ProgressBar';
 import { Button } from '../components/ui/button';
-import { fetchQueue, pauseJob, resumeJob, cancelJob, startQueue } from '../api/queue';
+import {
+  fetchQueue,
+  pauseJob,
+  resumeJob,
+  cancelJob,
+  removeJob,
+  startQueue,
+} from '../api/queue';
 import type { JobResponse, QueueResponse } from '../api/queue';
 
 function formatEta(seconds: number): string {
@@ -15,20 +23,141 @@ function formatEta(seconds: number): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
+function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remainingSeconds = total % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${remainingSeconds}s`;
+  }
+  return `${remainingSeconds}s`;
+}
+
+function summarizeQueue(items: JobResponse[]) {
+  const currentItem = items.find((item) => item.status === 'processing' || item.status === 'paused') ?? null;
+
+  return {
+    items,
+    current_item: currentItem,
+    pending_count: items.filter((job) => job.status === 'pending').length,
+    completed_count: items.filter((job) => job.status === 'completed').length,
+    failed_count: items.filter((job) => job.status === 'failed').length,
+  };
+}
+
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function JobRow({ job }: { job: JobResponse }) {
   const qc = useQueryClient();
+  const [actionError, setActionError] = useState<string | null>(null);
   const invalidate = () => qc.invalidateQueries({ queryKey: ['queue'] });
 
-  const pause = useMutation({ mutationFn: () => pauseJob(job.id), onSuccess: invalidate });
-  const resume = useMutation({ mutationFn: () => resumeJob(job.id), onSuccess: invalidate });
-  const cancel = useMutation({ mutationFn: () => cancelJob(job.id), onSuccess: invalidate });
+  function updateOptimistically(updater: (item: JobResponse | null) => JobResponse | null) {
+    qc.setQueryData<QueueResponse>(['queue'], (current) => {
+      if (!current) return current;
+      const items = current.items
+        .map((item) => (item.id === job.id ? updater(item) : item))
+        .filter((item): item is JobResponse => item !== null);
+      return summarizeQueue(items);
+    });
+  }
+
+  const pause = useMutation({
+    mutationFn: () => pauseJob(job.id),
+    onMutate: async () => {
+      setActionError(null);
+      await qc.cancelQueries({ queryKey: ['queue'] });
+      const previous = qc.getQueryData<QueueResponse>(['queue']);
+      updateOptimistically((item) => {
+        if (!item || item.status !== 'processing') return item;
+        return { ...item, status: 'paused' };
+      });
+      return { previous };
+    },
+    onError: (error, _variables, context) => {
+      if (context?.previous) {
+        qc.setQueryData(['queue'], context.previous);
+      }
+      setActionError(errorMessage(error, 'Failed to pause job.'));
+    },
+    onSettled: invalidate,
+  });
+
+  const resume = useMutation({
+    mutationFn: () => resumeJob(job.id),
+    onMutate: async () => {
+      setActionError(null);
+      await qc.cancelQueries({ queryKey: ['queue'] });
+      const previous = qc.getQueryData<QueueResponse>(['queue']);
+      updateOptimistically((item) => {
+        if (!item || item.status !== 'paused') return item;
+        return { ...item, status: 'processing' };
+      });
+      return { previous };
+    },
+    onError: (error, _variables, context) => {
+      if (context?.previous) {
+        qc.setQueryData(['queue'], context.previous);
+      }
+      setActionError(errorMessage(error, 'Failed to resume job.'));
+    },
+    onSettled: invalidate,
+  });
+
+  const cancel = useMutation({
+    mutationFn: () => cancelJob(job.id),
+    onMutate: async () => {
+      setActionError(null);
+      await qc.cancelQueries({ queryKey: ['queue'] });
+      const previous = qc.getQueryData<QueueResponse>(['queue']);
+      updateOptimistically((item) => {
+        if (!item || !['pending', 'processing', 'paused'].includes(item.status)) return item;
+        return { ...item, status: 'cancelled' };
+      });
+      return { previous };
+    },
+    onError: (error, _variables, context) => {
+      if (context?.previous) {
+        qc.setQueryData(['queue'], context.previous);
+      }
+      setActionError(errorMessage(error, 'Failed to cancel job.'));
+    },
+    onSettled: invalidate,
+  });
+
+  const remove = useMutation({
+    mutationFn: () => removeJob(job.id),
+    onMutate: async () => {
+      setActionError(null);
+      await qc.cancelQueries({ queryKey: ['queue'] });
+      const previous = qc.getQueryData<QueueResponse>(['queue']);
+      qc.setQueryData<QueueResponse>(['queue'], (current) => {
+        if (!current) return current;
+        const items = current.items.filter((item) => item.id !== job.id);
+        return summarizeQueue(items);
+      });
+      return { previous };
+    },
+    onError: (error, _variables, context) => {
+      if (context?.previous) {
+        qc.setQueryData(['queue'], context.previous);
+      }
+      setActionError(errorMessage(error, 'Failed to remove job.'));
+    },
+    onSettled: invalidate,
+  });
+
   const start = useMutation({
     mutationFn: startQueue,
     onMutate: async () => {
+      setActionError(null);
       await qc.cancelQueries({ queryKey: ['queue'] });
       const previous = qc.getQueryData<QueueResponse>(['queue']);
       qc.setQueryData<QueueResponse>(['queue'], (current) => {
@@ -39,18 +168,13 @@ function JobRow({ job }: { job: JobResponse }) {
           optimisticJob = {
             ...item,
             status: 'processing',
-            current_chapter: 'Starting conversion...',
+            current_chapter: 'Starting background processing...',
             provider_status: 'starting',
             started_at: item.started_at || Date.now() / 1000,
           };
           return optimisticJob;
         });
-        return {
-          ...current,
-          items,
-          current_item: current.current_item ?? optimisticJob,
-          pending_count: Math.max(0, current.pending_count - (optimisticJob ? 1 : 0)),
-        };
+        return summarizeQueue(items.length > 0 ? items : current.items);
       });
       return { previous };
     },
@@ -66,6 +190,14 @@ function JobRow({ job }: { job: JobResponse }) {
   const progressValue = job.progress > 1 ? job.progress / 100 : job.progress;
   const canCancel =
     job.status === 'pending' || job.status === 'processing' || job.status === 'paused';
+  const runningSeconds =
+    job.started_at > 0
+      ? Math.max(
+          0,
+          (job.completed_at > 0 ? job.completed_at : Date.now() / 1000) - job.started_at
+        )
+      : null;
+  const showTiming = runningSeconds !== null || (job.status === 'processing' || job.status === 'paused');
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
@@ -87,11 +219,17 @@ function JobRow({ job }: { job: JobResponse }) {
       {(job.status === 'processing' || job.status === 'paused') && (
         <>
           <ProgressBar value={progressValue} />
-          <div className="flex justify-between gap-3 text-xs text-muted-foreground">
-            <span className="truncate">{job.current_chapter}</span>
+          <div className="flex flex-wrap justify-between gap-3 text-xs text-muted-foreground">
+            <span className="truncate">Background chapter: {job.current_chapter}</span>
             <span>ETA: {formatEta(job.eta_seconds)}</span>
           </div>
         </>
+      )}
+
+      {showTiming && runningSeconds !== null && (
+        <p className="text-xs text-muted-foreground">
+          Time running: {formatDuration(runningSeconds)}
+        </p>
       )}
 
       {job.status === 'completed' && job.output_path && (
@@ -110,6 +248,12 @@ function JobRow({ job }: { job: JobResponse }) {
         <p className="text-xs text-muted-foreground">{job.provider_status}</p>
       )}
 
+      {actionError && (
+        <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {actionError}
+        </p>
+      )}
+
       {start.isError && (
         <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {errorMessage(start.error, 'Failed to start queue.')}
@@ -118,11 +262,7 @@ function JobRow({ job }: { job: JobResponse }) {
 
       <div className="flex flex-wrap gap-2">
         {start.isPending ? (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled
-          >
+          <Button size="sm" variant="outline" disabled>
             <CirclePlay aria-hidden="true" />
             Starting...
           </Button>
@@ -133,21 +273,27 @@ function JobRow({ job }: { job: JobResponse }) {
           </Button>
         )}
         {job.status === 'processing' && (
-          <Button size="sm" variant="outline" onClick={() => pause.mutate()}>
+          <Button size="sm" variant="outline" onClick={() => pause.mutate()} disabled={pause.isPending}>
             <CirclePause aria-hidden="true" />
-            Pause
+            {pause.isPending ? 'Pausing...' : 'Pause'}
           </Button>
         )}
         {job.status === 'paused' && (
-          <Button size="sm" variant="outline" onClick={() => resume.mutate()}>
+          <Button size="sm" variant="outline" onClick={() => resume.mutate()} disabled={resume.isPending}>
             <CirclePlay aria-hidden="true" />
-            Resume
+            {resume.isPending ? 'Resuming...' : 'Resume'}
           </Button>
         )}
         {canCancel && (
-          <Button size="sm" variant="destructive" onClick={() => cancel.mutate()}>
+          <Button size="sm" variant="destructive" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
             <X aria-hidden="true" />
-            Cancel
+            {cancel.isPending ? 'Cancelling...' : 'Cancel'}
+          </Button>
+        )}
+        {(job.status === 'failed' || job.status === 'completed') && (
+          <Button size="sm" variant="destructive" onClick={() => remove.mutate()} disabled={remove.isPending}>
+            <X aria-hidden="true" />
+            {remove.isPending ? 'Removing...' : 'Remove'}
           </Button>
         )}
       </div>
@@ -173,6 +319,9 @@ export default function Dashboard() {
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
             Track books as they move from page to voice.
           </p>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            Local runs request all CPU threads, so several chapters can process in parallel.
+          </p>
         </div>
         <Button onClick={() => navigate('/add')}>
           <BookOpen aria-hidden="true" />
@@ -187,8 +336,13 @@ export default function Dashboard() {
             <span className="font-medium">{data.pending_count}</span>
           </div>
           <div className="rounded-md border bg-card px-3 py-2">
-            <span className="block text-xs text-muted-foreground">Processing</span>
+            <span className="block text-xs text-muted-foreground">Active chapters</span>
             <span className="font-medium">{processingCount}</span>
+            <span className="mt-1 block text-[11px] text-muted-foreground">
+              {processingCount > 1
+                ? `${processingCount} chapters are processing in parallel right now`
+                : 'Chapter work runs in the background'}
+            </span>
           </div>
           <div className="rounded-md border bg-card px-3 py-2">
             <span className="block text-xs text-muted-foreground">Completed</span>

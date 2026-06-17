@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import App from './App';
 import { nativeCommands, nativeEvents, nativeStore } from './platform';
 import { useConnectionStore } from './store/connection';
+import { updateConfig } from './api/config';
 
 vi.mock('./platform', () => ({
   nativeCommands: {
@@ -27,6 +28,10 @@ vi.mock('./platform', () => ({
   },
 }));
 
+vi.mock('./api/config', () => ({
+  updateConfig: vi.fn(() => Promise.resolve({ config: {} })),
+}));
+
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
@@ -48,6 +53,8 @@ beforeEach(() => {
   vi.mocked(nativeEvents.onServerReady).mockResolvedValue(() => {});
   vi.mocked(nativeEvents.onServerError).mockReset();
   vi.mocked(nativeEvents.onServerError).mockResolvedValue(() => {});
+  vi.mocked(updateConfig).mockReset();
+  vi.mocked(updateConfig).mockResolvedValue({ config: {} });
   vi.mocked(nativeStore.loadSettings).mockReset();
   vi.mocked(nativeStore.loadSettings).mockResolvedValue({
     serverMode: 'local',
@@ -56,6 +63,10 @@ beforeEach(() => {
   vi.mocked(nativeStore.saveSettings).mockReset();
   vi.mocked(nativeStore.saveSettings).mockResolvedValue(undefined);
   mockFetch.mockReset();
+  Object.defineProperty(navigator, 'hardwareConcurrency', {
+    configurable: true,
+    value: 8,
+  });
   mockFetch.mockImplementation((url: string) => {
     const body = url.endsWith('/health')
       ? {
@@ -102,6 +113,7 @@ describe('App startup — local mode', () => {
       expect(screen.getByRole('heading', { name: /queue/i })).toBeInTheDocument();
     });
     expect(mockFetch).toHaveBeenCalledWith('http://localhost:45365/health');
+    expect(updateConfig).toHaveBeenCalledWith({ chapter_threads: 8 });
   });
 
   it('does not replace the dashboard with the connecting screen during a startup recheck', async () => {

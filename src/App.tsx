@@ -3,15 +3,18 @@ import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useConnectionStore, loadPersistedSettings } from './store/connection';
 import { createRuntimeAdapter, waitForRuntimeHealth } from './runtime/runtime';
+import { getRequestedLocalChapterThreads } from './runtime/threadBudget';
+import { updateConfig } from './api/config';
 import { nativeEvents } from './platform';
 import Installing from './pages/Installing';
 import Connecting from './pages/Connecting';
 import Dashboard from './pages/Dashboard';
 import Settings from './pages/Settings';
+import Voices from './pages/Voices';
 import AddJob from './pages/AddJob';
 
 const queryClient = new QueryClient();
-const APP_ROUTES = ['/dashboard', '/add', '/settings'];
+const APP_ROUTES = ['/dashboard', '/add', '/settings', '/voices'];
 
 function isAppRoute(pathname: string): boolean {
   return APP_ROUTES.some((route) =>
@@ -62,7 +65,14 @@ function AppRouter() {
         runtime
           .start()
           .then(() => waitForRuntimeHealth(runtime))
-          .then(() => {
+          .then(async () => {
+            if (!isCurrentAttempt()) return;
+            const requestedThreads = getRequestedLocalChapterThreads();
+            try {
+              await updateConfig({ chapter_threads: requestedThreads });
+            } catch (error) {
+              console.warn('Failed to submit local chapter thread config.', error);
+            }
             if (!isCurrentAttempt()) return;
             setConnectionStatus('connected');
             navigateAfterConnected();
@@ -125,6 +135,7 @@ function AppRouter() {
       <Route path="/installing" element={<Installing />} />
       <Route path="/connecting" element={<Connecting />} />
       <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/voices" element={<Voices />} />
       <Route path="/add/*" element={<AddJob />} />
       <Route path="/settings" element={<Settings />} />
       <Route path="*" element={<Connecting />} />
