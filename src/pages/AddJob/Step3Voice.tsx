@@ -5,7 +5,7 @@ import { ModelCombobox } from '../../components/ModelCombobox';
 import { analyzeBook, fetchAnalysisCaches, type AnalysisCacheCandidate, type AnalysisCharacter, type AnalysisResult } from '../../api/books';
 import { fetchTask, type TaskResponse } from '../../api/tasks';
 import { fetchMultivoiceStatus, type MultivoiceStatusResponse } from '../../api/status';
-import { fetchVoices, suggestCast, type VoiceResponse } from '../../api/voices';
+import { auditionAudioUrl, auditionVoice, fetchVoices, suggestCast, type AudioPreviewResult, type VoiceResponse } from '../../api/voices';
 import { fetchConfig } from '../../api/config';
 import type { NarrationMode } from '../../api/queue';
 import { NLP_PROVIDER_OPTIONS } from '../../lib/providerCatalog';
@@ -93,6 +93,27 @@ async function pollAnalysisTask(
   }
 }
 
+async function pollAuditionTask(
+  taskId: string,
+  onUpdate: (task: TaskResponse<AudioPreviewResult>) => void
+) {
+  for (;;) {
+    const task = await fetchTask<AudioPreviewResult>(taskId);
+    onUpdate(task);
+    if (task.status === 'completed' || task.status === 'failed') {
+      return task;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 800));
+  }
+}
+
+type AuditionView = {
+  status: string;
+  progress: number;
+  message: string;
+  audioUrl?: string;
+};
+
 export default function Step3Voice({ filePath, onBack, onNext }: Props) {
   const [narrationMode, setNarrationMode] = useState<NarrationMode>('single');
   const [voices, setVoices] = useState<VoiceResponse[]>([]);
@@ -104,6 +125,7 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
   const [analysisTask, setAnalysisTask] = useState<TaskResponse<AnalysisResult> | null>(null);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [speakerVoices, setSpeakerVoices] = useState<Record<string, string>>({});
+  const [auditions, setAuditions] = useState<Record<string, AuditionView>>({});
   const [castWarnings, setCastWarnings] = useState<string[]>([]);
   const [cacheCandidates, setCacheCandidates] = useState<AnalysisCacheCandidate[]>([]);
   const [selectedCacheId, setSelectedCacheId] = useState('');
@@ -270,6 +292,45 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
       setSeriesError(error instanceof Error ? error.message : 'Failed to create series.');
     } finally {
       setSeriesCreating(false);
+    }
+  }
+
+  async function startAudition(auditionKey: string, voiceName: string) {
+    setError(null);
+    try {
+      const task = await auditionVoice({ voice_name: voiceName });
+      setAuditions((current) => ({
+        ...current,
+        [auditionKey]: {
+          status: task.status,
+          progress: task.progress,
+          message: task.message,
+        },
+      }));
+      const completed = await pollAuditionTask(task.task_id, (next) => {
+        setAuditions((current) => ({
+          ...current,
+          [auditionKey]: {
+            status: next.status,
+            progress: next.progress,
+            message: next.message,
+          },
+        }));
+      });
+      if (completed.status === 'failed') {
+        throw new Error(completed.error ?? 'Audition failed.');
+      }
+      setAuditions((current) => ({
+        ...current,
+        [auditionKey]: {
+          status: completed.status,
+          progress: completed.progress,
+          message: completed.message,
+          audioUrl: auditionAudioUrl(completed.task_id),
+        },
+      }));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to start audition.');
     }
   }
 
@@ -603,42 +664,74 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
                   ))}
                 </select>
               </label>
-              {analysisResult.characters.map((character) => (
-                <label
-                  key={character.character_id}
-                  className="grid gap-2 rounded-md border bg-background/45 p-3 text-sm md:grid-cols-[minmax(0,1fr)_14rem]"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium">{character.display_name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {character.quote_count} quotes · {character.mention_count} mentions
-                      {character.gender_pronoun && (
-                        <span className="ml-1">· {character.gender_pronoun}</span>
-                      )}
-                    </span>
-                  </span>
-                  <select
-                    className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
-                    value={speakerVoices[character.character_id] ?? selectedVoice}
-                    onChange={(event) =>
-                      setSpeakerVoices((current) => ({
-                        ...current,
-                        [character.character_id]: event.target.value,
-                      }))
-                    }
+              {analysisResult.characters.map((character) => {
+                const audition = auditions[character.character_id];
+                return (
+                  <label
+                    key={character.character_id}
+                    className="grid gap-2 rounded-md border bg-background/45 p-3 text-sm md:grid-cols-[minmax(0,1fr)_14rem]"
                   >
-                    {Object.entries(voicesByGender).map(([genderLabel, gVoices]) => (
-                      <optgroup key={genderLabel} label={genderLabel}>
-                        {gVoices.map((voice) => (
-                          <option key={voice.name} value={voice.name}>
-                            {voice.display_label}
-                          </option>
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{character.display_name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {character.quote_count} quotes · {character.mention_count} mentions
+                        {character.gender_pronoun && (
+                          <span className="ml-1">· {character.gender_pronoun}</span>
+                        )}
+                      </span>
+                    </span>
+                    <div className="flex flex-col gap-2">
+                      <select
+                        aria-label={`Voice for ${character.display_name}`}
+                        className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
+                        value={speakerVoices[character.character_id] ?? selectedVoice}
+                        onChange={(event) =>
+                          setSpeakerVoices((current) => ({
+                            ...current,
+                            [character.character_id]: event.target.value,
+                          }))
+                        }
+                      >
+                        {Object.entries(voicesByGender).map(([genderLabel, gVoices]) => (
+                          <optgroup key={genderLabel} label={genderLabel}>
+                            {gVoices.map((voice) => (
+                              <option key={voice.name} value={voice.name}>
+                                {voice.display_label}
+                              </option>
+                            ))}
+                          </optgroup>
                         ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                </label>
-              ))}
+                      </select>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void startAudition(
+                          character.character_id,
+                          speakerVoices[character.character_id] ?? selectedVoice
+                        )}
+                      >
+                        Audition {character.display_name} voice
+                      </Button>
+                      {audition && (
+                        <div className="rounded-md border bg-background/45 p-2 text-xs text-muted-foreground">
+                          <p>
+                            {audition.status} {audition.progress}% · {audition.message}
+                          </p>
+                          {audition.audioUrl && (
+                            <audio
+                              aria-label={`${character.display_name} voice audition`}
+                              className="mt-2 w-full"
+                              controls
+                              src={audition.audioUrl}
+                            />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </label>
+                );
+              })}
             </div>
           )}
         </div>

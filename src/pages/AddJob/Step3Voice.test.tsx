@@ -5,6 +5,8 @@ import Step3Voice from './Step3Voice';
 import type { VoiceListResponse } from '../../api/voices';
 
 vi.mock('../../api/voices', () => ({
+  auditionAudioUrl: vi.fn(),
+  auditionVoice: vi.fn(),
   fetchVoices: vi.fn(),
   suggestCast: vi.fn(),
 }));
@@ -35,7 +37,7 @@ vi.mock('../../api/series', () => ({
   fetchSeries: vi.fn(),
 }));
 
-import { fetchVoices, suggestCast } from '../../api/voices';
+import { auditionAudioUrl, auditionVoice, fetchVoices, suggestCast } from '../../api/voices';
 import { analyzeBook, fetchAnalysisCaches } from '../../api/books';
 import { fetchConfig } from '../../api/config';
 import { fetchTask } from '../../api/tasks';
@@ -44,6 +46,8 @@ import { createEmptySeries, fetchSeries } from '../../api/series';
 import { useProviderModels } from '../../hooks/useProviderModels';
 const mockFetchVoices = fetchVoices as ReturnType<typeof vi.fn>;
 const mockSuggestCast = suggestCast as ReturnType<typeof vi.fn>;
+const mockAuditionVoice = auditionVoice as ReturnType<typeof vi.fn>;
+const mockAuditionAudioUrl = auditionAudioUrl as ReturnType<typeof vi.fn>;
 const mockAnalyzeBook = analyzeBook as ReturnType<typeof vi.fn>;
 const mockFetchAnalysisCaches = fetchAnalysisCaches as ReturnType<typeof vi.fn>;
 const mockFetchConfig = fetchConfig as ReturnType<typeof vi.fn>;
@@ -117,6 +121,16 @@ describe('Step3Voice', () => {
     mockFetchAnalysisCaches.mockResolvedValue({ book_hash: 'hash123', candidates: [] });
     mockFetchSeries.mockResolvedValue({ series: [], total: 0 });
     mockCreateEmptySeries.mockResolvedValue({ slug: 'the-expanse', name: 'The Expanse' });
+    mockAuditionVoice.mockResolvedValue({
+      task_id: 'audition-1',
+      type: 'audition',
+      status: 'running',
+      progress: 0,
+      message: 'Queued',
+      result: null,
+      error: null,
+    });
+    mockAuditionAudioUrl.mockReturnValue('http://localhost:45365/v1/voices/audition/audition-1.wav');
     mockAnalyzeBook.mockResolvedValue({
       task_id: 'analysis-1',
       type: 'full_analysis',
@@ -499,6 +513,62 @@ describe('Step3Voice', () => {
       voice: 'dave',
       speakerVoices: expect.objectContaining({ NARRATOR: 'dave' }),
     }));
+  });
+
+  it('auditions the currently selected character voice', async () => {
+    mockFetchVoices.mockResolvedValue(mockVoiceList);
+    mockFetchTask
+      .mockResolvedValueOnce({
+        task_id: 'analysis-1',
+        type: 'full_analysis',
+        status: 'completed',
+        progress: 100,
+        message: 'Done',
+        result: {
+          characters: [
+            {
+              character_id: 'alice',
+              display_name: 'Alice',
+              quote_count: 4,
+              mention_count: 12,
+              gender_pronoun: 'she',
+            },
+          ],
+          book_hash: 'hash123',
+          annotated_chapters_path: '/cache/annotated.json',
+          roster_cache_path: '/cache/roster.json',
+          nlp_provider: 'ollama',
+          nlp_model: 'llama3.2',
+          attribution_provider: 'ollama',
+          attribution_model: 'llama3.2',
+          cache_status: 'miss',
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        task_id: 'audition-1',
+        type: 'audition',
+        status: 'completed',
+        progress: 100,
+        message: 'Ready',
+        result: { voice_id: 'dave', audio_path: '/tmp/dave.wav' },
+        error: null,
+      });
+
+    render(<Step3Voice filePath="/books/great.epub" onBack={vi.fn()} onNext={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText('Alba (female, en-us)')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /multi.voice/i }));
+    await userEvent.click(screen.getByRole('button', { name: /analyze cast/i }));
+
+    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /audition alice voice/i }));
+
+    expect(mockAuditionVoice).toHaveBeenCalledWith({ voice_name: 'dave' });
+    expect(await screen.findByLabelText(/alice voice audition/i)).toHaveAttribute(
+      'src',
+      'http://localhost:45365/v1/voices/audition/audition-1.wav'
+    );
   });
 
   it('displays gender_pronoun for each character in cast table', async () => {
