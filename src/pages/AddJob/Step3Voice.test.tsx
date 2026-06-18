@@ -15,6 +15,11 @@ vi.mock('../../hooks/useProviderModels', () => ({
 
 vi.mock('../../api/books', () => ({
   analyzeBook: vi.fn(),
+  fetchAnalysisCaches: vi.fn(),
+}));
+
+vi.mock('../../api/config', () => ({
+  fetchConfig: vi.fn(),
 }));
 
 vi.mock('../../api/tasks', () => ({
@@ -26,13 +31,16 @@ vi.mock('../../api/status', () => ({
 }));
 
 import { fetchVoices, suggestCast } from '../../api/voices';
-import { analyzeBook } from '../../api/books';
+import { analyzeBook, fetchAnalysisCaches } from '../../api/books';
+import { fetchConfig } from '../../api/config';
 import { fetchTask } from '../../api/tasks';
 import { fetchMultivoiceStatus } from '../../api/status';
 import { useProviderModels } from '../../hooks/useProviderModels';
 const mockFetchVoices = fetchVoices as ReturnType<typeof vi.fn>;
 const mockSuggestCast = suggestCast as ReturnType<typeof vi.fn>;
 const mockAnalyzeBook = analyzeBook as ReturnType<typeof vi.fn>;
+const mockFetchAnalysisCaches = fetchAnalysisCaches as ReturnType<typeof vi.fn>;
+const mockFetchConfig = fetchConfig as ReturnType<typeof vi.fn>;
 const mockFetchTask = fetchTask as ReturnType<typeof vi.fn>;
 const mockFetchMultivoiceStatus = fetchMultivoiceStatus as ReturnType<typeof vi.fn>;
 const mockUseProviderModels = useProviderModels as ReturnType<typeof vi.fn>;
@@ -91,6 +99,14 @@ describe('Step3Voice', () => {
       ollama_url: 'http://localhost:11434',
       message: 'Multi-voice ready',
     });
+    mockFetchConfig.mockResolvedValue({
+      config: {
+        nlp_provider: 'ollama',
+        nlp_model: 'llama3.2',
+        nlp_discovery_method: 'auto',
+      },
+    });
+    mockFetchAnalysisCaches.mockResolvedValue({ book_hash: 'hash123', candidates: [] });
     mockAnalyzeBook.mockResolvedValue({
       task_id: 'analysis-1',
       type: 'full_analysis',
@@ -222,8 +238,26 @@ describe('Step3Voice', () => {
     );
   });
 
-  it('uses cache only when the user chooses cached analysis', async () => {
+  it('uses cache only when the user chooses a discovered cache', async () => {
     mockFetchVoices.mockResolvedValue(mockVoiceList);
+    mockFetchAnalysisCaches.mockResolvedValueOnce({
+      book_hash: 'hash123',
+      candidates: [
+        {
+          cache_id: 'hash-ollama-llama3_2.json',
+          step: 'attribution',
+          provider: 'ollama',
+          model: 'llama3.2',
+          method: '',
+          created_at: '2026-06-18T09:00:00Z',
+          description: 'Full attribution cache · ollama · llama3.2',
+          path: '/cache/hash-ollama-llama3_2.json',
+          character_count: 44,
+          chapter_count: 63,
+          quote_count: 4,
+        },
+      ],
+    });
     mockFetchTask.mockResolvedValueOnce({
       task_id: 'analysis-1',
       type: 'full_analysis',
@@ -259,10 +293,20 @@ describe('Step3Voice', () => {
     });
 
     await userEvent.click(screen.getByRole('button', { name: /multi.voice/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/we discovered cache files for this book/i)).toBeInTheDocument();
+      expect(screen.getByText(/44 characters · 63 chapters · 4 quotes/i)).toBeInTheDocument();
+    });
     await userEvent.click(screen.getByRole('button', { name: /use cache if available/i }));
 
     expect(mockAnalyzeBook).toHaveBeenCalledWith(
-      expect.objectContaining({ use_cache: true })
+      expect.objectContaining({
+        nlp_provider: 'ollama',
+        nlp_model: 'llama3.2',
+        attribution_provider: 'ollama',
+        attribution_model: 'llama3.2',
+        use_cache: true,
+      })
     );
     await waitFor(() => {
       expect(screen.getByText(/analysis source: cached result/i)).toBeInTheDocument();

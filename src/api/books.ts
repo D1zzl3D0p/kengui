@@ -53,6 +53,25 @@ export interface AnalysisResult {
   cache_status: string;
 }
 
+export interface AnalysisCacheCandidate {
+  cache_id: string;
+  step: string;
+  provider: string;
+  model: string;
+  method: string;
+  created_at: string;
+  description: string;
+  path: string;
+  character_count: number;
+  chapter_count: number;
+  quote_count: number;
+}
+
+export interface AnalysisCacheCandidatesResponse {
+  book_hash: string;
+  candidates: AnalysisCacheCandidate[];
+}
+
 export interface BookAnalyzeRequest {
   ebook_path: string;
   nlp_model?: string | null;
@@ -80,6 +99,12 @@ export const filterChapters = (book_hash: string, preset: ChapterPreset) =>
 
 export const analyzeBook = (request: BookAnalyzeRequest) =>
   apiRequest<TaskResponse<AnalysisResult>>('/books/analyze', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+
+export const fetchAnalysisCaches = (request: BookAnalyzeRequest) =>
+  apiRequest<AnalysisCacheCandidatesResponse>('/books/analyze/caches', {
     method: 'POST',
     body: JSON.stringify(request),
   });

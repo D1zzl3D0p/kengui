@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useConnectionStore } from '../store/connection';
-import { analyzeBook } from './books';
+import { analyzeBook, fetchAnalysisCaches } from './books';
 
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
@@ -48,6 +48,24 @@ describe('books api', () => {
           nlp_model: 'openai/gpt-4.1-mini',
           use_cache: false,
         }),
+      })
+    );
+  });
+
+  it('fetches analysis cache candidates', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ book_hash: 'hash123', candidates: [] }),
+    });
+
+    await fetchAnalysisCaches({ ebook_path: '/books/great.epub' });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:45365/v1/books/analyze/caches',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ ebook_path: '/books/great.epub' }),
       })
     );
   });

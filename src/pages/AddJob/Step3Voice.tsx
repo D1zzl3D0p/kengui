@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { Mic2, RefreshCw, UsersRound } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { ModelCombobox } from '../../components/ModelCombobox';
-import { analyzeBook, type AnalysisCharacter, type AnalysisResult } from '../../api/books';
+import { analyzeBook, fetchAnalysisCaches, type AnalysisCacheCandidate, type AnalysisCharacter, type AnalysisResult } from '../../api/books';
 import { fetchTask, type TaskResponse } from '../../api/tasks';
 import { fetchMultivoiceStatus, type MultivoiceStatusResponse } from '../../api/status';
 import { fetchVoices, suggestCast, type VoiceResponse } from '../../api/voices';
+import { fetchConfig } from '../../api/config';
 import type { NarrationMode } from '../../api/queue';
 import { NLP_PROVIDER_OPTIONS } from '../../lib/providerCatalog';
 import { useProviderModels } from '../../hooks/useProviderModels';
@@ -94,6 +95,9 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [speakerVoices, setSpeakerVoices] = useState<Record<string, string>>({});
   const [castWarnings, setCastWarnings] = useState<string[]>([]);
+  const [cacheCandidates, setCacheCandidates] = useState<AnalysisCacheCandidate[]>([]);
+  const [selectedCacheId, setSelectedCacheId] = useState('');
+  const [cacheLoading, setCacheLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +123,38 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
   }, []);
 
   useEffect(() => {
+    fetchConfig()
+      .then(({ config }) => {
+        const provider = typeof config.nlp_provider === 'string' ? config.nlp_provider : '';
+        const model = typeof config.nlp_model === 'string' ? config.nlp_model : '';
+        const method = typeof config.nlp_discovery_method === 'string' ? config.nlp_discovery_method : '';
+        if (provider) setNlpProvider(provider);
+        if (model) setNlpModel(model);
+        if (['auto', 'llm', 'booknlp', 'spacy'].includes(method)) {
+          setDiscoveryMethod(method as CharacterDiscoveryMethod);
+        }
+      })
+      .catch(() => {
+        // Config defaults are a convenience; keep local fallbacks if unavailable.
+      });
+  }, []);
+
+  useEffect(() => {
+    if (narrationMode !== 'multi') return;
+    setCacheLoading(true);
+    fetchAnalysisCaches({ ebook_path: filePath })
+      .then((data) => {
+        setCacheCandidates(data.candidates);
+        setSelectedCacheId(data.candidates[0]?.cache_id ?? '');
+      })
+      .catch(() => {
+        setCacheCandidates([]);
+        setSelectedCacheId('');
+      })
+      .finally(() => setCacheLoading(false));
+  }, [filePath, narrationMode]);
+
+  useEffect(() => {
     if (narrationMode !== 'multi') return;
     fetchMultivoiceStatus()
       .then(setMultivoiceStatus)
@@ -139,9 +175,15 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
     () => voices.filter((voice) => voice.excluded).map((voice) => voice.name),
     [voices]
   );
+  const selectedCache = useMemo(
+    () => cacheCandidates.find((candidate) => candidate.cache_id === selectedCacheId),
+    [cacheCandidates, selectedCacheId]
+  );
 
-  async function runAnalysis(useCache = false) {
+  async function runAnalysis(useCache = false, cacheCandidate?: AnalysisCacheCandidate) {
     const narratorVoice = selectedVoice || DEFAULT_NARRATOR_VOICE;
+    const requestProvider = cacheCandidate?.provider || nlpProvider;
+    const requestModel = cacheCandidate?.model || nlpModel;
     setAnalyzing(true);
     setError(null);
     setCastWarnings([]);
@@ -149,11 +191,11 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
     try {
       const task = await analyzeBook({
         ebook_path: filePath,
-        nlp_provider: nlpProvider,
-        nlp_model: nlpModel,
-        discovery_method: discoveryMethod,
-        attribution_provider: nlpProvider,
-        attribution_model: nlpModel,
+        nlp_provider: requestProvider,
+        nlp_model: requestModel,
+        discovery_method: cacheCandidate?.method || discoveryMethod,
+        attribution_provider: requestProvider,
+        attribution_model: requestModel,
         use_cache: useCache,
       });
       setAnalysisTask(task);
@@ -320,7 +362,7 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
                   onChange={setNlpModel}
                   options={nlpModelOptions}
                   placeholder="Search models"
-                  disabled={nlpModelsLoading || nlpModelOptions.length === 0}
+                  disabled={nlpModelsLoading}
                 />
               )}
             </label>
@@ -329,6 +371,48 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
           {multivoiceStatus && (
             <p className="rounded-md border bg-background/45 px-3 py-2 text-sm text-muted-foreground">
               {multivoiceStatus.message}
+            </p>
+          )}
+
+          {cacheCandidates.length > 0 && (
+            <div className="rounded-md border bg-background/45 p-3 text-sm">
+              <h3 className="font-medium">We discovered cache files for this book</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Choose one only if you want to reuse cached NLP work. Otherwise run a fresh analysis.
+              </p>
+              <div className="mt-3 flex flex-col gap-2">
+                {cacheCandidates.map((candidate) => (
+                  <label
+                    key={candidate.cache_id}
+                    className="flex gap-2 rounded-md border bg-card p-3"
+                  >
+                    <input
+                      type="radio"
+                      name="analysis-cache"
+                      value={candidate.cache_id}
+                      checked={selectedCacheId === candidate.cache_id}
+                      onChange={() => setSelectedCacheId(candidate.cache_id)}
+                    />
+                    <span className="min-w-0">
+                      <span className="block font-medium">
+                        {candidate.description || `${candidate.step} cache`}
+                      </span>
+                      <span className="block break-words text-xs text-muted-foreground">
+                        step={candidate.step} · method={candidate.method || 'n/a'} · provider={candidate.provider || 'n/a'} · model={candidate.model || 'n/a'}
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        {candidate.character_count} characters · {candidate.chapter_count} chapters · {candidate.quote_count} quotes
+                        {candidate.created_at ? ` · ${candidate.created_at}` : ''}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          {cacheLoading && (
+            <p className="rounded-md border bg-background/45 px-3 py-2 text-sm text-muted-foreground">
+              Looking for reusable analysis caches...
             </p>
           )}
 
@@ -348,11 +432,12 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
             <Button
               variant="outline"
               className="w-fit"
-              onClick={() => void runAnalysis(true)}
+              onClick={() => void runAnalysis(true, selectedCache)}
               disabled={
                 analyzing ||
                 loading ||
-                (narrationMode === 'multi' && (nlpModelsLoading || !nlpModel))
+                !selectedCache ||
+                (narrationMode === 'multi' && nlpModelsLoading)
               }
             >
               Use cache if available
