@@ -56,6 +56,8 @@ export default function Step4Review({ state, onBack, onDone }: Props) {
         roster_cache_path: state.narrationMode === 'multi' ? state.rosterCachePath ?? null : null,
         job_nlp_provider: state.narrationMode === 'multi' ? state.nlpProvider ?? null : null,
         job_nlp_model: state.narrationMode === 'multi' ? state.nlpModel ?? null : null,
+        job_character_discovery_method:
+          state.narrationMode === 'multi' ? state.discoveryMethod ?? 'auto' : null,
         job_attribution_provider: state.narrationMode === 'multi' ? state.nlpProvider ?? null : null,
         job_attribution_model: state.narrationMode === 'multi' ? state.nlpModel ?? null : null,
       });
@@ -135,7 +137,7 @@ export default function Step4Review({ state, onBack, onDone }: Props) {
                 NLP
               </span>
               <span className="text-sm">
-                {state.nlpProvider} {state.nlpModel}
+                {state.discoveryMethod ?? 'auto'} · {state.nlpProvider} {state.nlpModel}
               </span>
             </div>
             <div className="flex flex-col gap-1">

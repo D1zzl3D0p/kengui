@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useConnectionStore } from '../store/connection';
 import {
+  UnsupportedProviderCredentialsError,
   deleteProviderCredentials,
   fetchProviderCredentials,
+  testProviderCredentials,
   updateProviderCredentials,
 } from './credentials';
 
@@ -70,6 +72,39 @@ describe('credentials api', () => {
     expect(mockFetch).toHaveBeenCalledWith(
       'http://localhost:45365/v1/provider-credentials/openrouter',
       expect.objectContaining({ method: 'DELETE' })
+    );
+  });
+
+  it('tests provider credentials', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ status: 'ok', message: 'Validated' }),
+    });
+
+    await testProviderCredentials('openai');
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:45365/v1/provider-credentials/openai/test',
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
+
+  it('raises a compatibility error when provider credentials routes are unsupported', async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve('not found'),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve('not found'),
+      });
+
+    await expect(fetchProviderCredentials()).rejects.toBeInstanceOf(
+      UnsupportedProviderCredentialsError
     );
   });
 });

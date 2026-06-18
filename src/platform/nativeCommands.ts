@@ -31,6 +31,7 @@ export const nativeCommands: NativeRuntimeCommands = {
       running: false,
       pid: null,
       last_error: 'Tauri runtime is unavailable.',
+      port_owner: null,
       log_tail: [],
     }),
   serverLogs: () => invokeOrFallback('server_logs', []),

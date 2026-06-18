@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useConnectionStore, loadPersistedSettings } from './store/connection';
-import { createRuntimeAdapter, waitForRuntimeHealth } from './runtime/runtime';
+import { createRuntimeAdapter, RuntimeCompatibilityError, waitForRuntimeHealth } from './runtime/runtime';
 import { getRequestedLocalChapterThreads } from './runtime/threadBudget';
 import { updateConfig } from './api/config';
 import { nativeEvents } from './platform';
@@ -23,7 +23,7 @@ function isAppRoute(pathname: string): boolean {
 }
 
 function AppRouter() {
-  const { serverMode, serverUrl, setConnectionStatus } = useConnectionStore();
+  const { serverMode, serverUrl, setConnectionStatus, setConnectionError } = useConnectionStore();
   const navigate = useNavigate();
   const [initialized, setInitialized] = useState(false);
   const connectionAttemptRef = useRef(0);
@@ -61,40 +61,72 @@ function AppRouter() {
           return;
         }
         setConnectionStatus('checking');
+        setConnectionError(null);
         navigateToConnecting();
         runtime
-          .start()
-          .then(() => waitForRuntimeHealth(runtime))
-          .then(async () => {
+          .health()
+          .then(() => {
             if (!isCurrentAttempt()) return;
-            const requestedThreads = getRequestedLocalChapterThreads();
-            try {
-              await updateConfig({ chapter_threads: requestedThreads });
-            } catch (error) {
-              console.warn('Failed to submit local chapter thread config.', error);
-            }
-            if (!isCurrentAttempt()) return;
+            setConnectionError(null);
             setConnectionStatus('connected');
             navigateAfterConnected();
           })
-          .catch(() => {
+          .catch((healthError) => {
             if (!isCurrentAttempt()) return;
-            setConnectionStatus('error');
-            navigateToConnecting();
+            if (healthError instanceof RuntimeCompatibilityError) {
+              setConnectionError(healthError.message);
+              setConnectionStatus('error');
+              navigateToConnecting();
+              return;
+            }
+
+            runtime
+              .start()
+              .then(() => waitForRuntimeHealth(runtime))
+              .then(async () => {
+                if (!isCurrentAttempt()) return;
+                const requestedThreads = getRequestedLocalChapterThreads();
+                try {
+                  await updateConfig({ chapter_threads: requestedThreads });
+                } catch (error) {
+                  console.warn('Failed to submit local chapter thread config.', error);
+                }
+                if (!isCurrentAttempt()) return;
+                setConnectionError(null);
+                setConnectionStatus('connected');
+                navigateAfterConnected();
+              })
+              .catch((startError) => {
+                if (!isCurrentAttempt()) return;
+                setConnectionError(
+                  startError instanceof Error
+                    ? startError.message
+                    : 'Could not reach kenkui. Check that it is running and try again.'
+                );
+                setConnectionStatus('error');
+                navigateToConnecting();
+              });
           });
       });
     } else {
       setConnectionStatus('checking');
+      setConnectionError(null);
       navigateToConnecting();
       runtime
         .health()
         .then(() => {
           if (!isCurrentAttempt()) return;
+          setConnectionError(null);
           setConnectionStatus('connected');
           navigateAfterConnected();
         })
-        .catch(() => {
+        .catch((error) => {
           if (!isCurrentAttempt()) return;
+          setConnectionError(
+            error instanceof Error
+              ? error.message
+              : 'Could not reach kenkui. Check that it is running and try again.'
+          );
           setConnectionStatus('error');
           navigateToConnecting();
         });
@@ -112,23 +144,30 @@ function AppRouter() {
       );
       waitForRuntimeHealth(runtime)
         .then(() => {
+          setConnectionError(null);
           setConnectionStatus('connected');
           if (!isAppRoute(window.location.pathname)) {
             navigate('/dashboard');
           }
         })
-        .catch(() => {
+        .catch((error) => {
+          setConnectionError(
+            error instanceof Error
+              ? error.message
+              : 'Could not reach kenkui. Check that it is running and try again.'
+          );
           setConnectionStatus('error');
         });
     });
-    const error = nativeEvents.onServerError(() => {
+    const error = nativeEvents.onServerError((message) => {
+      setConnectionError(message || 'The managed kenkui process exited before becoming ready.');
       setConnectionStatus('error');
     });
     return () => {
       ready.then((fn) => fn());
       error.then((fn) => fn());
     };
-  }, []);
+  }, [navigate, setConnectionError, setConnectionStatus]);
 
   return (
     <Routes>

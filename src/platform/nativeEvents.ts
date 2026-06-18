@@ -4,7 +4,7 @@ import type { Unlisten } from './types';
 
 export interface NativeRuntimeEvents {
   onServerReady: (callback: () => void) => Promise<Unlisten>;
-  onServerError: (callback: () => void) => Promise<Unlisten>;
+  onServerError: (callback: (message: string | null) => void) => Promise<Unlisten>;
 }
 
 async function listenOrNoop<T>(
@@ -12,7 +12,7 @@ async function listenOrNoop<T>(
   callback: (payload: T) => void
 ): Promise<Unlisten> {
   try {
-    return await listen<T>(event, () => callback(undefined as T));
+    return await listen<T>(event, (payload) => callback(payload.payload));
   } catch {
     return () => {};
   }

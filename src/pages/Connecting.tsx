@@ -1,7 +1,7 @@
 import { useConnectionStore } from '../store/connection';
 
 export default function Connecting() {
-  const { connectionStatus, serverMode } = useConnectionStore();
+  const { connectionStatus, serverMode, connectionError } = useConnectionStore();
 
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-4">
@@ -9,7 +9,7 @@ export default function Connecting() {
         <>
           <h1 className="text-xl font-semibold text-red-600">Connection failed</h1>
           <p className="text-muted-foreground">
-            Could not reach kenkui. Check that it is running and try again.
+            {connectionError ?? 'Could not reach kenkui. Check that it is running and try again.'}
           </p>
         </>
       ) : (

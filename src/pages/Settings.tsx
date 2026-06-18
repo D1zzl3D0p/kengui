@@ -2,17 +2,30 @@ import { useEffect, useMemo, useState } from 'react';
 import { Check, Copy, KeyRound, RefreshCw, RotateCcw, Save, Server, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { Button } from '../components/ui/button';
+import { ModelCombobox } from '../components/ModelCombobox';
 import { useConnectionStore } from '../store/connection';
 import type { ServerMode } from '../store/connection';
-import { createRuntimeAdapter, type LocalRuntimeStatus, type RuntimeHealth } from '../runtime/runtime';
+import {
+  createRuntimeAdapter,
+  supportsProviderCredentials,
+  supportsProviderModels,
+  type LocalRuntimeStatus,
+  type RuntimeHealth,
+} from '../runtime/runtime';
 import { formatRequestedLocalChapterThreads, getRequestedLocalChapterThreads } from '../runtime/threadBudget';
 import { fetchConfig, patchConfig, type KenkuiConfig } from '../api/config';
+import { fetchVoices, type VoiceResponse } from '../api/voices';
 import {
   deleteProviderCredentials,
   fetchProviderCredentials,
+  isProviderCredentialsUnsupportedError,
+  testProviderCredentials,
   updateProviderCredentials,
   type ProviderCredentialStatus,
 } from '../api/credentials';
+import { CREDENTIAL_PROVIDER_OPTIONS, M4B_BITRATE_OPTIONS, NLP_PROVIDER_OPTIONS, providerLabel } from '../lib/providerCatalog';
+import { withCurrentOption } from '../lib/selectOptions';
+import { useProviderModels } from '../hooks/useProviderModels';
 
 type LogOrder = 'newest' | 'oldest';
 type ConfigForm = {
@@ -31,13 +44,6 @@ type ConfigForm = {
 type CredentialDraft = {
   apiKey: string;
   defaultModel: string;
-};
-
-const PROVIDER_LABELS: Record<string, string> = {
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
-  google: 'Google Gemini',
-  openrouter: 'OpenRouter',
 };
 
 const EMPTY_CONFIG_FORM: ConfigForm = {
@@ -101,16 +107,6 @@ function configPatchFromForm(form: ConfigForm): KenkuiConfig {
   };
 }
 
-function credentialDraftsFromStatuses(statuses: ProviderCredentialStatus[]) {
-  return statuses.reduce<Record<string, CredentialDraft>>((drafts, status) => {
-    drafts[status.provider] = {
-      apiKey: '',
-      defaultModel: status.default_model,
-    };
-    return drafts;
-  }, {});
-}
-
 export default function Settings() {
   const { serverMode, serverUrl, setServerMode } = useConnectionStore();
   const [localMode, setLocalMode] = useState<ServerMode>(serverMode);
@@ -130,18 +126,57 @@ export default function Settings() {
   const [configSaving, setConfigSaving] = useState(false);
   const [configMessage, setConfigMessage] = useState<string | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
+  const [voices, setVoices] = useState<VoiceResponse[]>([]);
+  const [voiceLoading, setVoiceLoading] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const [credentials, setCredentials] = useState<ProviderCredentialStatus[]>([]);
   const [credentialDrafts, setCredentialDrafts] = useState<Record<string, CredentialDraft>>({});
   const [credentialLoading, setCredentialLoading] = useState(false);
   const [credentialSaving, setCredentialSaving] = useState<string | null>(null);
   const [credentialMessage, setCredentialMessage] = useState<string | null>(null);
   const [credentialError, setCredentialError] = useState<string | null>(null);
+  const [selectedCredentialProvider, setSelectedCredentialProvider] = useState<string>(
+    CREDENTIAL_PROVIDER_OPTIONS[0].value
+  );
   const requestedChapterThreads = getRequestedLocalChapterThreads();
+  const {
+    models: configModelOptions,
+    loading: configModelsLoading,
+    error: configModelsError,
+  } = useProviderModels(configForm.nlp_provider);
+  const {
+    models: credentialModelOptions,
+    loading: credentialModelsLoading,
+    error: credentialModelsError,
+  } = useProviderModels(selectedCredentialProvider);
 
   const visibleLogs = useMemo(() => {
     const filtered = logs.filter((line) => lineMatchesSeverity(line, logFilter));
     return logOrder === 'newest' ? [...filtered].reverse() : filtered;
   }, [logFilter, logOrder, logs]);
+  const availableVoices = useMemo(() => voices.filter((voice) => !voice.excluded), [voices]);
+  const selectedCredentialStatus = useMemo(
+    () =>
+      credentials.find((item) => item.provider === selectedCredentialProvider) ?? {
+        provider: selectedCredentialProvider,
+        configured: false,
+        default_model: '',
+        masked_key_hint: '',
+      },
+    [credentials, selectedCredentialProvider]
+  );
+  const selectedCredentialDraft =
+    credentialDrafts[selectedCredentialProvider] ?? {
+      apiKey: '',
+      defaultModel: selectedCredentialStatus.default_model,
+    };
+  const localRuntimeManagement =
+    serverMode === 'local' && health ? (status?.running ? 'managed' : 'attached') : null;
+  const providerModelsSupported = supportsProviderModels(health);
+  const providerCredentialsSupported = supportsProviderCredentials(health);
+  const providerModelsUnavailable =
+    Boolean(health && !providerModelsSupported) ||
+    Boolean(configModelsError?.includes('does not support provider model discovery'));
 
   async function refreshDiagnostics() {
     const runtime = createRuntimeAdapter(serverMode, serverUrl);
@@ -184,6 +219,7 @@ export default function Settings() {
   useEffect(() => {
     refreshConfig();
     refreshCredentials();
+    refreshVoices();
   }, [serverMode, serverUrl]);
 
   async function handleSave() {
@@ -236,7 +272,24 @@ export default function Settings() {
     }
   }
 
+  async function refreshVoices() {
+    setVoiceLoading(true);
+    setVoiceError(null);
+    try {
+      const response = await fetchVoices();
+      setVoices(response.voices);
+    } catch (error) {
+      setVoiceError(error instanceof Error ? error.message : 'Voice load failed.');
+    } finally {
+      setVoiceLoading(false);
+    }
+  }
+
   async function saveConfig() {
+    if (!configForm.nlp_model.trim()) {
+      setConfigError('Select an NLP model.');
+      return;
+    }
     setConfigSaving(true);
     setConfigError(null);
     setConfigMessage(null);
@@ -258,9 +311,36 @@ export default function Settings() {
     try {
       const response = await fetchProviderCredentials();
       setCredentials(response.providers);
-      setCredentialDrafts(credentialDraftsFromStatuses(response.providers));
+      setCredentialDrafts((current) => {
+        const nextDrafts = { ...current };
+        const statusesByProvider = new Map(
+          response.providers.map((status) => [status.provider, status] as const)
+        );
+
+        for (const provider of CREDENTIAL_PROVIDER_OPTIONS) {
+          const status = statusesByProvider.get(provider.value);
+          if (status) {
+            nextDrafts[provider.value] = {
+              apiKey: '',
+              defaultModel:
+                nextDrafts[provider.value]?.defaultModel.trim() || status.default_model,
+            };
+            continue;
+          }
+          if (!nextDrafts[provider.value]) {
+            nextDrafts[provider.value] = { apiKey: '', defaultModel: '' };
+          }
+        }
+
+        return nextDrafts;
+      });
     } catch (error) {
-      setCredentialError(error instanceof Error ? error.message : 'Credential load failed.');
+      setCredentials([]);
+      if (isProviderCredentialsUnsupportedError(error)) {
+        setCredentialError(error.message);
+      } else {
+        setCredentialError(error instanceof Error ? error.message : 'Credential load failed.');
+      }
     } finally {
       setCredentialLoading(false);
     }
@@ -284,22 +364,54 @@ export default function Settings() {
 
   async function saveCredential(provider: string) {
     const draft = credentialDrafts[provider] ?? { apiKey: '', defaultModel: '' };
+    const currentStatus = credentials.find((item) => item.provider === provider);
+    const needsKey = !currentStatus?.configured && !draft.apiKey.trim();
+    const resolvedDefaultModel = draft.defaultModel.trim() || currentStatus?.default_model || '';
+
+    if (needsKey) {
+      setCredentialError('API key is required to add this provider.');
+      return;
+    }
+    if (!resolvedDefaultModel) {
+      setCredentialError('Select a default model.');
+      return;
+    }
+
     setCredentialSaving(provider);
     setCredentialError(null);
     setCredentialMessage(null);
     try {
       const request = {
-        default_model: draft.defaultModel.trim(),
+        default_model: resolvedDefaultModel,
       } as { api_key?: string | null; default_model?: string | null };
       if (draft.apiKey.trim()) {
         request.api_key = draft.apiKey.trim();
       }
       const updated = await updateProviderCredentials(provider, request);
-      setCredentials((current) =>
-        current.map((item) => (item.provider === provider ? updated : item))
-      );
-      updateCredentialDraft(provider, { apiKey: '', defaultModel: updated.default_model });
-      setCredentialMessage(`${PROVIDER_LABELS[provider] ?? provider} saved.`);
+      setCredentials((current) => {
+        const exists = current.some((item) => item.provider === provider);
+        if (!exists) {
+          return [...current, updated];
+        }
+        return current.map((item) => (item.provider === provider ? updated : item));
+      });
+      updateCredentialDraft(provider, {
+        apiKey: '',
+        defaultModel: updated.default_model,
+      });
+      setCredentialMessage(`${providerLabel(provider)} saved.`);
+
+      try {
+        await testProviderCredentials(provider);
+        setCredentialMessage(`${providerLabel(provider)} saved and validated.`);
+      } catch (error) {
+        setCredentialError(
+          error instanceof Error
+            ? `${providerLabel(provider)} saved, but validation failed: ${error.message}`
+            : `${providerLabel(provider)} saved, but validation failed.`
+        );
+      }
+
       setTimeout(() => setCredentialMessage(null), 1800);
     } catch (error) {
       setCredentialError(error instanceof Error ? error.message : 'Credential save failed.');
@@ -314,8 +426,12 @@ export default function Settings() {
     setCredentialMessage(null);
     try {
       await deleteProviderCredentials(provider);
+      setCredentialDrafts((current) => ({
+        ...current,
+        [provider]: { apiKey: '', defaultModel: '' },
+      }));
       await refreshCredentials();
-      setCredentialMessage(`${PROVIDER_LABELS[provider] ?? provider} removed.`);
+      setCredentialMessage(`${providerLabel(provider)} removed.`);
       setTimeout(() => setCredentialMessage(null), 1800);
     } catch (error) {
       setCredentialError(error instanceof Error ? error.message : 'Credential delete failed.');
@@ -460,19 +576,39 @@ export default function Settings() {
               {status && (
                 <>
                   <dt className="text-muted-foreground">Process</dt>
-                  <dd>{status.running ? `Running (${status.pid ?? 'unknown pid'})` : 'Stopped'}</dd>
+                  <dd>
+                    {localRuntimeManagement === 'attached'
+                      ? 'Attached to existing local runtime'
+                      : status.running
+                        ? `Running (${status.pid ?? 'unknown pid'})`
+                        : 'Stopped'}
+                  </dd>
                   <dt className="text-muted-foreground">Runtime</dt>
-                  <dd>{status.available ? 'Available' : 'Missing'}</dd>
+                  <dd>
+                    {localRuntimeManagement === 'attached'
+                      ? 'Externally managed'
+                      : status.available
+                        ? 'Available'
+                        : 'Missing'}
+                  </dd>
                   <dt className="text-muted-foreground">Chapter threads</dt>
                   <dd>
-                    {serverMode === 'local'
+                    {localRuntimeManagement === 'managed'
                       ? `Requested ${formatRequestedLocalChapterThreads(requestedChapterThreads)}`
-                      : 'Not requested'}
+                      : localRuntimeManagement === 'attached'
+                        ? 'Not adjusted for attached runtimes'
+                        : 'Not requested'}
                   </dd>
                   {status.last_error && (
                     <>
                       <dt className="text-muted-foreground">Last error</dt>
                       <dd className="break-words">{status.last_error}</dd>
+                    </>
+                  )}
+                  {status.port_owner && (
+                    <>
+                      <dt className="text-muted-foreground">Port 45365</dt>
+                      <dd className="break-words">{status.port_owner}</dd>
                     </>
                   )}
                 </>
@@ -481,7 +617,9 @@ export default function Settings() {
 
             {serverMode === 'local' && (
               <p className="mt-3 text-xs text-muted-foreground">
-                Local runs request all available CPU threads, so multiple chapters can run in parallel.
+                {localRuntimeManagement === 'attached'
+                  ? 'This local runtime was started outside kengui. Stop and restart it from its own terminal if you need to change process settings.'
+                  : 'Local runs started by kengui request all available CPU threads, so multiple chapters can run in parallel.'}
               </p>
             )}
 
@@ -498,7 +636,7 @@ export default function Settings() {
                 variant="outline"
                 className="w-fit"
                 onClick={handleRestart}
-                disabled={restarting}
+                disabled={restarting || localRuntimeManagement === 'attached'}
               >
                 <RotateCcw aria-hidden="true" />
                 {restarting ? 'Restarting...' : 'Restart local server'}
@@ -509,7 +647,9 @@ export default function Settings() {
                   <div>
                     <h3 className="font-medium">Local server logs</h3>
                     <p className="text-xs text-muted-foreground">
-                      {logs.length} retained line{logs.length === 1 ? '' : 's'}
+                      {localRuntimeManagement === 'attached'
+                        ? 'Logs are only available for local runtimes started by kengui.'
+                        : `${logs.length} retained line${logs.length === 1 ? '' : 's'}`}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -537,14 +677,18 @@ export default function Settings() {
                       variant="outline"
                       size="sm"
                       onClick={handleCopyLogs}
-                      disabled={visibleLogs.length === 0}
+                      disabled={visibleLogs.length === 0 || localRuntimeManagement === 'attached'}
                     >
                       {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
                       {copied ? 'Copied' : 'Copy'}
                     </Button>
                   </div>
                 </div>
-                {visibleLogs.length > 0 ? (
+                {localRuntimeManagement === 'attached' ? (
+                  <p className="p-4 text-sm text-muted-foreground">
+                    This process is externally managed. Use the terminal that launched `kenkui serve` for logs and restarts.
+                  </p>
+                ) : visibleLogs.length > 0 ? (
                   <pre className="max-h-72 overflow-auto p-3 font-mono text-xs leading-5">
                     {visibleLogs.join('\n')}
                   </pre>
@@ -571,7 +715,11 @@ export default function Settings() {
                 <RefreshCw aria-hidden="true" />
                 {configLoading ? 'Loading...' : 'Reload'}
               </Button>
-              <Button size="sm" onClick={saveConfig} disabled={configSaving || configLoading}>
+              <Button
+                size="sm"
+                onClick={saveConfig}
+                disabled={configSaving || configLoading || configModelsLoading || !configForm.nlp_model.trim()}
+              >
                 <Save aria-hidden="true" />
                 {configSaving ? 'Saving...' : 'Save config'}
               </Button>
@@ -581,11 +729,29 @@ export default function Settings() {
           <div className="grid gap-3 md:grid-cols-2">
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium">Default voice</span>
-              <input
+              {voiceLoading && <p className="text-xs text-muted-foreground">Loading voices...</p>}
+              {!voiceLoading && voiceError && (
+                <p className="text-xs text-destructive">{voiceError}</p>
+              )}
+              <select
                 className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
                 value={configForm.default_voice}
                 onChange={(event) => updateConfigField('default_voice', event.target.value)}
-              />
+                disabled={voiceLoading}
+              >
+                <option value="">Select a voice</option>
+                {configForm.default_voice.trim() &&
+                  !availableVoices.some((voice) => voice.name === configForm.default_voice) && (
+                    <option value={configForm.default_voice}>
+                      Current: {configForm.default_voice}
+                    </option>
+                  )}
+                {availableVoices.map((voice) => (
+                  <option key={voice.name} value={voice.name}>
+                    {voice.display_label}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium">Default output dir</span>
@@ -608,11 +774,18 @@ export default function Settings() {
             </label>
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium">M4B bitrate</span>
-              <input
+              <select
                 className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
                 value={configForm.m4b_bitrate}
                 onChange={(event) => updateConfigField('m4b_bitrate', event.target.value)}
-              />
+              >
+                <option value="">Select bitrate</option>
+                {withCurrentOption(configForm.m4b_bitrate, M4B_BITRATE_OPTIONS).map((bitrate) => (
+                  <option key={bitrate} value={bitrate}>
+                    {bitrate}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium">Line pause ms</span>
@@ -641,22 +814,48 @@ export default function Settings() {
               <select
                 className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
                 value={configForm.nlp_provider}
-                onChange={(event) => updateConfigField('nlp_provider', event.target.value)}
+                onChange={(event) => {
+                  updateConfigField('nlp_provider', event.target.value);
+                  updateConfigField('nlp_model', '');
+                }}
               >
-                <option value="ollama">Ollama</option>
-                <option value="openrouter">OpenRouter</option>
-                <option value="openai">OpenAI</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="google">Google Gemini</option>
+                {NLP_PROVIDER_OPTIONS.map((provider) => (
+                  <option key={provider.value} value={provider.value}>
+                    {provider.label}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium">NLP model</span>
-              <input
-                className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
-                value={configForm.nlp_model}
-                onChange={(event) => updateConfigField('nlp_model', event.target.value)}
-              />
+              {configModelsLoading && (
+                <p className="text-xs text-muted-foreground">Loading models...</p>
+              )}
+              {!configModelsLoading && configModelsError && (
+                <p className="text-xs text-destructive">{configModelsError}</p>
+              )}
+              {!configModelsLoading && providerModelsUnavailable && (
+                <p className="text-xs text-muted-foreground">
+                  Model discovery is unavailable for this runtime. Enter the model id manually.
+                </p>
+              )}
+              {providerModelsUnavailable ? (
+                <input
+                  className="box-border min-h-10 w-full min-w-0 rounded-md border border-input bg-card px-3 py-2"
+                  value={configForm.nlp_model}
+                  onChange={(event) => updateConfigField('nlp_model', event.target.value)}
+                  placeholder="llama3.2"
+                />
+              ) : (
+                <ModelCombobox
+                  id="config-nlp-model"
+                  value={configForm.nlp_model}
+                  onChange={(value) => updateConfigField('nlp_model', value)}
+                  options={configModelOptions}
+                  placeholder="Search models"
+                  disabled={configModelsLoading}
+                />
+              )}
             </label>
             <label className="flex flex-col gap-1 text-sm md:col-span-2">
               <span className="font-medium">Ollama URL</span>
@@ -700,75 +899,167 @@ export default function Settings() {
             </Button>
           </div>
 
-          <div className="flex flex-col gap-3">
-            {credentials.map((credential) => {
-              const draft = credentialDrafts[credential.provider] ?? {
-                apiKey: '',
-                defaultModel: credential.default_model,
-              };
-              const label = PROVIDER_LABELS[credential.provider] ?? credential.provider;
-              const saving = credentialSaving === credential.provider;
+          {!providerCredentialsSupported && health ? (
+            <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              This runtime does not support provider credentials management. Upgrade kenkui to edit or validate credentials here.
+            </p>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            <div className="flex flex-col gap-2">
+              {CREDENTIAL_PROVIDER_OPTIONS.map((provider) => {
+                const credential = credentials.find((item) => item.provider === provider.value) ?? {
+                  provider: provider.value,
+                  configured: false,
+                  default_model: '',
+                  masked_key_hint: '',
+                };
+                const active = selectedCredentialProvider === provider.value;
 
-              return (
-                <div key={credential.provider} className="rounded-md border bg-background/45 p-3">
-                  <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h3 className="font-medium">{label}</h3>
+                return (
+                  <div
+                    key={provider.value}
+                    className={`flex items-start justify-between gap-3 rounded-md border px-3 py-3 ${
+                      active ? 'border-primary/50 bg-primary/5' : 'bg-background/45'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <h3 className="font-medium">{provider.label}</h3>
                       <p className="text-xs text-muted-foreground">
                         {credential.configured
                           ? `Configured ${credential.masked_key_hint}`
                           : 'Not configured'}
                       </p>
+                      <p className="text-xs text-muted-foreground">
+                        {credential.default_model
+                          ? `Default model ${credential.default_model}`
+                          : 'No default model'}
+                      </p>
                     </div>
                     <Button
-                      variant="destructive"
+                      variant={active ? 'default' : 'outline'}
                       size="sm"
-                      onClick={() => deleteCredential(credential.provider)}
-                      disabled={saving}
+                      onClick={() => {
+                        setSelectedCredentialProvider(provider.value);
+                        setCredentialError(null);
+                        setCredentialMessage(null);
+                      }}
                     >
-                      <Trash2 aria-hidden="true" />
-                      Delete
+                      {active ? 'Selected' : 'Edit'}
                     </Button>
                   </div>
-                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
-                    <label className="flex flex-col gap-1 text-sm">
-                      <span className="font-medium">API key</span>
-                      <input
-                        type="password"
-                        autoComplete="off"
-                        className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
-                        placeholder={credential.configured ? 'Preserve existing key' : 'Enter key'}
-                        value={draft.apiKey}
-                        onChange={(event) =>
-                          updateCredentialDraft(credential.provider, { apiKey: event.target.value })
-                        }
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 text-sm">
-                      <span className="font-medium">Default model</span>
-                      <input
-                        className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
-                        value={draft.defaultModel}
-                        onChange={(event) =>
-                          updateCredentialDraft(credential.provider, {
-                            defaultModel: event.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                    <Button
-                      className="md:mb-0"
-                      onClick={() => saveCredential(credential.provider)}
-                      disabled={saving}
-                    >
-                      <Save aria-hidden="true" />
-                      {saving ? 'Saving...' : 'Update'}
-                    </Button>
-                  </div>
+                );
+              })}
+            </div>
+
+            <div className="rounded-md border bg-background/45 p-4">
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <h3 className="font-medium">{providerLabel(selectedCredentialProvider)}</h3>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedCredentialStatus.configured
+                      ? `Configured ${selectedCredentialStatus.masked_key_hint}`
+                      : 'Not configured'}
+                  </p>
+                  {selectedCredentialStatus.default_model && (
+                    <p className="text-xs text-muted-foreground">
+                      Current model {selectedCredentialStatus.default_model}
+                    </p>
+                  )}
                 </div>
-              );
-            })}
-          </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => saveCredential(selectedCredentialProvider)}
+                    disabled={
+                      credentialSaving === selectedCredentialProvider ||
+                      credentialLoading ||
+                      credentialModelsLoading ||
+                      !selectedCredentialDraft.defaultModel.trim() ||
+                      (!selectedCredentialStatus.configured && !selectedCredentialDraft.apiKey.trim())
+                    }
+                  >
+                    <Save aria-hidden="true" />
+                    {credentialSaving === selectedCredentialProvider
+                      ? 'Saving...'
+                      : 'Save and test'}
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => deleteCredential(selectedCredentialProvider)}
+                    disabled={
+                      credentialSaving === selectedCredentialProvider ||
+                      credentialLoading ||
+                      !selectedCredentialStatus.configured
+                    }
+                  >
+                    <Trash2 aria-hidden="true" />
+                    Delete
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid gap-3">
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Provider</span>
+                  <select
+                    className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
+                    value={selectedCredentialProvider}
+                    onChange={(event) => {
+                      setSelectedCredentialProvider(event.target.value);
+                      setCredentialError(null);
+                      setCredentialMessage(null);
+                    }}
+                  >
+                    {CREDENTIAL_PROVIDER_OPTIONS.map((provider) => (
+                      <option key={provider.value} value={provider.value}>
+                        {provider.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">API key</span>
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    className="box-border min-h-10 w-full min-w-0 rounded-md border border-input bg-card px-3 py-2"
+                    placeholder={
+                      selectedCredentialStatus.configured
+                        ? 'Leave blank to keep existing key'
+                        : 'Enter API key'
+                    }
+                    value={selectedCredentialDraft.apiKey}
+                    onChange={(event) =>
+                      updateCredentialDraft(selectedCredentialProvider, {
+                        apiKey: event.target.value,
+                      })
+                    }
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Default model</span>
+                  {credentialModelsLoading && (
+                    <p className="text-xs text-muted-foreground">Loading models...</p>
+                  )}
+                  {!credentialModelsLoading && credentialModelsError && (
+                    <p className="text-xs text-destructive">{credentialModelsError}</p>
+                  )}
+                  <ModelCombobox
+                    id="credential-default-model"
+                    value={selectedCredentialDraft.defaultModel}
+                    onChange={(value) =>
+                      updateCredentialDraft(selectedCredentialProvider, {
+                        defaultModel: value,
+                      })
+                    }
+                    options={credentialModelOptions}
+                    placeholder="Search models"
+                    disabled={credentialModelsLoading}
+                  />
+                </label>
+              </div>
+            </div>
+            </div>
+          )}
 
           {credentialMessage && (
             <p className="rounded-md border border-[var(--color-success)]/25 bg-[rgb(111_138_101_/_12%)] px-3 py-2 text-sm text-[var(--color-success)]">

@@ -134,6 +134,7 @@ describe('Step4Review', () => {
           voice: 'alba',
           nlpProvider: 'openrouter',
           nlpModel: 'openai/gpt-4.1-mini',
+          discoveryMethod: 'spacy',
           speakerVoices: { NARRATOR: 'alba', alice: 'dave' },
           annotatedChaptersPath: '/cache/annotated.json',
           rosterCachePath: '/cache/roster.json',
@@ -163,6 +164,7 @@ describe('Step4Review', () => {
           roster_cache_path: '/cache/roster.json',
           job_nlp_provider: 'openrouter',
           job_nlp_model: 'openai/gpt-4.1-mini',
+          job_character_discovery_method: 'spacy',
           job_attribution_provider: 'openrouter',
           job_attribution_model: 'openai/gpt-4.1-mini',
         })

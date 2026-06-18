@@ -9,11 +9,14 @@ export interface RuntimeHealth {
   message?: string;
 }
 
+export type LocalRuntimeManagement = 'managed' | 'attached';
+
 export interface LocalRuntimeStatus {
   available: boolean;
   running: boolean;
   pid: number | null;
   last_error: string | null;
+  port_owner: string | null;
   log_tail: string[];
 }
 

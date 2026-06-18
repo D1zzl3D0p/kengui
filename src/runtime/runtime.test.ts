@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { nativeCommands } from '../platform';
-import { createRuntimeAdapter, waitForRuntimeHealth } from './runtime';
+import {
+  createRuntimeAdapter,
+  supportsProviderCredentials,
+  supportsProviderModels,
+  waitForRuntimeHealth,
+} from './runtime';
 
 vi.mock('../platform', () => ({
   nativeCommands: {
@@ -34,6 +39,7 @@ describe('createRuntimeAdapter', () => {
       running: true,
       pid: 123,
       last_error: null,
+      port_owner: null,
       log_tail: [],
     });
     vi.mocked(nativeCommands.serverLogs).mockResolvedValue([]);
@@ -63,7 +69,7 @@ describe('createRuntimeAdapter', () => {
     expect(nativeCommands.spawnServer).not.toHaveBeenCalled();
   });
 
-  it('rejects local runtimes that do not expose kenkui capabilities', async () => {
+  it('allows local runtimes without optional provider model discovery', async () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({
@@ -73,7 +79,7 @@ describe('createRuntimeAdapter', () => {
     });
     const runtime = createRuntimeAdapter('local', 'http://localhost:45365');
 
-    await expect(runtime.health()).rejects.toThrow(/compatible kenkui serve/);
+    await expect(runtime.health()).resolves.toMatchObject({ status: 'healthy' });
   });
 
   it('allows external runtimes with older capability sets', async () => {
@@ -87,6 +93,16 @@ describe('createRuntimeAdapter', () => {
     const runtime = createRuntimeAdapter('external', 'http://server.local:45365');
 
     await expect(runtime.health()).resolves.toMatchObject({ status: 'healthy' });
+  });
+
+  it('recognizes provider capability flags from health responses', () => {
+    expect(
+      supportsProviderModels({ status: 'healthy', capabilities: ['provider-models'] })
+    ).toBe(true);
+    expect(
+      supportsProviderCredentials({ status: 'healthy', capabilities: ['provider-credentials'] })
+    ).toBe(true);
+    expect(supportsProviderModels({ status: 'healthy', capabilities: [] })).toBe(false);
   });
 
   it('retries health checks until the runtime is available', async () => {

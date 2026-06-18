@@ -1,19 +1,61 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Mic2, RefreshCw, UsersRound } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { ModelCombobox } from '../../components/ModelCombobox';
 import { analyzeBook, type AnalysisCharacter, type AnalysisResult } from '../../api/books';
 import { fetchTask, type TaskResponse } from '../../api/tasks';
 import { fetchMultivoiceStatus, type MultivoiceStatusResponse } from '../../api/status';
 import { fetchVoices, suggestCast, type VoiceResponse } from '../../api/voices';
 import type { NarrationMode } from '../../api/queue';
+import { NLP_PROVIDER_OPTIONS } from '../../lib/providerCatalog';
+import { useProviderModels } from '../../hooks/useProviderModels';
 
 const DEFAULT_NARRATOR_VOICE = 'alba';
+
+type CharacterDiscoveryMethod = 'auto' | 'llm' | 'booknlp' | 'spacy';
+
+const CHARACTER_DISCOVERY_OPTIONS: Array<{
+  value: CharacterDiscoveryMethod;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'auto',
+    label: 'Auto',
+    description: 'Try BookNLP first, then fall back to LLM discovery.',
+  },
+  {
+    value: 'llm',
+    label: 'LLM',
+    description: 'Use the selected NLP provider directly.',
+  },
+  {
+    value: 'booknlp',
+    label: 'BookNLP',
+    description: 'Use BookNLP character discovery only.',
+  },
+  {
+    value: 'spacy',
+    label: 'spaCy',
+    description: 'Use spaCy named-entity recognition only.',
+  },
+];
+
+function validateAnalysisResult(result: AnalysisResult): AnalysisCharacter[] {
+  // The backend contract says `characters` is an array. Keep that boundary
+  // explicit so a stale/partial runtime cannot crash React into a white screen.
+  if (!Array.isArray(result.characters)) {
+    throw new Error('Analysis completed without a character roster. Please update kenkui and retry.');
+  }
+  return result.characters;
+}
 
 interface Step3Data {
   narrationMode: NarrationMode;
   voice: string;
   nlpProvider?: string;
   nlpModel?: string;
+  discoveryMethod?: CharacterDiscoveryMethod;
   speakerVoices?: Record<string, string>;
   annotatedChaptersPath?: string | null;
   rosterCachePath?: string | null;
@@ -46,6 +88,7 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
   const [selectedVoice, setSelectedVoice] = useState<string>('');
   const [nlpProvider, setNlpProvider] = useState('ollama');
   const [nlpModel, setNlpModel] = useState('llama3.2');
+  const [discoveryMethod, setDiscoveryMethod] = useState<CharacterDiscoveryMethod>('auto');
   const [multivoiceStatus, setMultivoiceStatus] = useState<MultivoiceStatusResponse | null>(null);
   const [analysisTask, setAnalysisTask] = useState<TaskResponse<AnalysisResult> | null>(null);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
@@ -54,6 +97,11 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const {
+    models: nlpModelOptions,
+    loading: nlpModelsLoading,
+    error: nlpModelsError,
+  } = useProviderModels(nlpProvider);
 
   useEffect(() => {
     setLoading(true);
@@ -103,6 +151,7 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
         ebook_path: filePath,
         nlp_provider: nlpProvider,
         nlp_model: nlpModel,
+        discovery_method: discoveryMethod,
         attribution_provider: nlpProvider,
         attribution_model: nlpModel,
       });
@@ -111,9 +160,10 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
       if (completed.status === 'failed' || !completed.result) {
         throw new Error(completed.error ?? 'Analysis failed.');
       }
+      const characters = validateAnalysisResult(completed.result);
       setAnalysisResult(completed.result);
       const suggested = await suggestCast(
-        completed.result.characters,
+        characters,
         excludedVoiceNames,
         narratorVoice
       );
@@ -141,6 +191,7 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
       voice: narratorVoice,
       nlpProvider,
       nlpModel,
+      discoveryMethod,
       speakerVoices: { ...speakerVoices, NARRATOR: narratorVoice },
       annotatedChaptersPath: analysisResult.annotated_chapters_path,
       rosterCachePath: analysisResult.roster_cache_path,
@@ -151,7 +202,9 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
   const nextDisabled =
     loading ||
     !selectedVoice ||
-    (narrationMode === 'multi' && (!analysisResult || analyzing));
+    (narrationMode === 'multi' && (!analysisResult || analyzing || nlpModelsLoading || !nlpModel));
+  const modelDiscoveryUnsupported =
+    nlpModelsError?.includes('does not support provider model discovery') ?? false;
 
   return (
     <div className="flex flex-col gap-6">
@@ -206,30 +259,69 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
 
       {narrationMode === 'multi' && (
         <div className="flex flex-col gap-4 rounded-lg border bg-card p-4 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-3">
+            <label htmlFor="character-discovery-select" className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">Character discovery</span>
+              <select
+                id="character-discovery-select"
+                value={discoveryMethod}
+                onChange={(e) => setDiscoveryMethod(e.target.value as CharacterDiscoveryMethod)}
+                className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
+              >
+                {CHARACTER_DISCOVERY_OPTIONS.map((method) => (
+                  <option key={method.value} value={method.value}>
+                    {method.label}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs text-muted-foreground">
+                {CHARACTER_DISCOVERY_OPTIONS.find((method) => method.value === discoveryMethod)?.description}
+              </span>
+            </label>
             <label htmlFor="nlp-provider-select" className="flex flex-col gap-1 text-sm">
               <span className="font-medium">NLP provider</span>
               <select
                 id="nlp-provider-select"
                 value={nlpProvider}
-                onChange={(e) => setNlpProvider(e.target.value)}
+                onChange={(e) => {
+                  setNlpProvider(e.target.value);
+                  setNlpModel('');
+                }}
                 className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
               >
-                <option value="ollama">Ollama</option>
-                <option value="openrouter">OpenRouter</option>
-                <option value="openai">OpenAI</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="google">Google Gemini</option>
+                {NLP_PROVIDER_OPTIONS.map((provider) => (
+                  <option key={provider.value} value={provider.value}>
+                    {provider.label}
+                  </option>
+                ))}
               </select>
             </label>
-            <label htmlFor="nlp-model-input" className="flex flex-col gap-1 text-sm">
+            <label htmlFor="nlp-model-select" className="flex flex-col gap-1 text-sm">
               <span className="font-medium">NLP model</span>
-              <input
-                id="nlp-model-input"
-                value={nlpModel}
-                onChange={(e) => setNlpModel(e.target.value)}
-                className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
-              />
+              {nlpModelsLoading && (
+                <p className="text-xs text-muted-foreground">Loading models...</p>
+              )}
+              {!nlpModelsLoading && nlpModelsError && (
+                <p className="text-xs text-destructive">{nlpModelsError}</p>
+              )}
+              {modelDiscoveryUnsupported ? (
+                <input
+                  id="nlp-model-select"
+                  value={nlpModel}
+                  onChange={(e) => setNlpModel(e.target.value)}
+                  className="box-border min-h-10 w-full min-w-0 rounded-md border border-input bg-card px-3 py-2"
+                  placeholder="llama3.2"
+                />
+              ) : (
+                <ModelCombobox
+                  id="nlp-model-select"
+                  value={nlpModel}
+                  onChange={setNlpModel}
+                  options={nlpModelOptions}
+                  placeholder="Search models"
+                  disabled={nlpModelsLoading || nlpModelOptions.length === 0}
+                />
+              )}
             </label>
           </div>
 
@@ -239,7 +331,15 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
             </p>
           )}
 
-          <Button className="w-fit" onClick={runAnalysis} disabled={analyzing || loading}>
+          <Button
+            className="w-fit"
+            onClick={runAnalysis}
+            disabled={
+              analyzing ||
+              loading ||
+              (narrationMode === 'multi' && (nlpModelsLoading || !nlpModel))
+            }
+          >
             <RefreshCw aria-hidden="true" />
             {analyzing ? 'Analyzing...' : 'Analyze cast'}
           </Button>

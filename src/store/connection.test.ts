@@ -19,6 +19,7 @@ beforeEach(() => {
     serverMode: 'local',
     serverUrl: 'http://localhost:45365',
     connectionStatus: 'checking',
+    connectionError: null,
   });
   vi.mocked(nativeStore.loadSettings).mockReset();
   vi.mocked(nativeStore.loadSettings).mockResolvedValue({
@@ -31,15 +32,21 @@ beforeEach(() => {
 
 describe('useConnectionStore', () => {
   it('initializes with default local mode', () => {
-    const { serverMode, serverUrl, connectionStatus } = useConnectionStore.getState();
+    const { serverMode, serverUrl, connectionStatus, connectionError } = useConnectionStore.getState();
     expect(serverMode).toBe('local');
     expect(serverUrl).toBe('http://localhost:45365');
     expect(connectionStatus).toBe('checking');
+    expect(connectionError).toBeNull();
   });
 
   it('setConnectionStatus updates status', () => {
     useConnectionStore.getState().setConnectionStatus('connected');
     expect(useConnectionStore.getState().connectionStatus).toBe('connected');
+  });
+
+  it('setConnectionError updates the current connection error', () => {
+    useConnectionStore.getState().setConnectionError('upgrade required');
+    expect(useConnectionStore.getState().connectionError).toBe('upgrade required');
   });
 
   it('setServerMode persists settings through the platform store', async () => {

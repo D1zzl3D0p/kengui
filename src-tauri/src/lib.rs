@@ -10,6 +10,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use std::os::unix::process::CommandExt;
 
 const LOG_TAIL_LIMIT: usize = 200;
+const LOCAL_SERVER_PORT: u16 = 45365;
 const SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(5);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -26,6 +27,7 @@ struct ServerStatus {
     running: bool,
     pid: Option<u32>,
     last_error: Option<String>,
+    port_owner: Option<String>,
     log_tail: Vec<String>,
 }
 
@@ -73,6 +75,36 @@ fn server_command() -> Result<Command, String> {
     }
 
     Err("Could not find kenkui on PATH".to_string())
+}
+
+fn local_port_owner() -> Option<String> {
+    let output = Command::new("/usr/sbin/lsof")
+        .arg("-nP")
+        .arg(format!("-iTCP:{LOCAL_SERVER_PORT}"))
+        .arg("-sTCP:LISTEN")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout.lines().skip(1).find_map(|line| {
+        let columns: Vec<&str> = line.split_whitespace().collect();
+        if columns.len() < 2 {
+            return None;
+        }
+        let command = columns[0];
+        let pid = columns[1];
+        Some(format!("{command} pid {pid} is listening on port {LOCAL_SERVER_PORT}"))
+    })
+}
+
+fn startup_error_with_port_owner(message: String) -> String {
+    match local_port_owner() {
+        Some(owner) => format!("{message}. {owner}"),
+        None => message,
+    }
 }
 
 fn try_wait_for_exit(child: &mut Child) -> Result<bool, String> {
@@ -172,7 +204,7 @@ async fn spawn_server(app: AppHandle, state: State<'_, ServerProcess>) -> Result
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| {
-            let message = format!("Failed to spawn kenkui serve: {e}");
+            let message = startup_error_with_port_owner(format!("Failed to spawn kenkui serve: {e}"));
             *state.last_error.lock().unwrap() = Some(message.clone());
             message
         })?;
@@ -203,7 +235,10 @@ async fn spawn_server(app: AppHandle, state: State<'_, ServerProcess>) -> Result
                 }
                 Err(_) => {
                     if !ready_emitted {
-                        let _ = app_clone.emit("server-error", "stdout closed unexpectedly");
+                        let message = startup_error_with_port_owner(
+                            "kenkui stdout closed before the server became ready".to_string(),
+                        );
+                        let _ = app_clone.emit("server-error", message);
                     }
                     break;
                 }
@@ -267,6 +302,7 @@ async fn server_status(state: State<'_, ServerProcess>) -> Result<ServerStatus, 
         running,
         pid,
         last_error: state.last_error.lock().unwrap().clone(),
+        port_owner: local_port_owner(),
         log_tail: state.logs.lock().unwrap().clone(),
     })
 }

@@ -9,6 +9,10 @@ vi.mock('../../api/voices', () => ({
   suggestCast: vi.fn(),
 }));
 
+vi.mock('../../hooks/useProviderModels', () => ({
+  useProviderModels: vi.fn(),
+}));
+
 vi.mock('../../api/books', () => ({
   analyzeBook: vi.fn(),
 }));
@@ -25,11 +29,13 @@ import { fetchVoices, suggestCast } from '../../api/voices';
 import { analyzeBook } from '../../api/books';
 import { fetchTask } from '../../api/tasks';
 import { fetchMultivoiceStatus } from '../../api/status';
+import { useProviderModels } from '../../hooks/useProviderModels';
 const mockFetchVoices = fetchVoices as ReturnType<typeof vi.fn>;
 const mockSuggestCast = suggestCast as ReturnType<typeof vi.fn>;
 const mockAnalyzeBook = analyzeBook as ReturnType<typeof vi.fn>;
 const mockFetchTask = fetchTask as ReturnType<typeof vi.fn>;
 const mockFetchMultivoiceStatus = fetchMultivoiceStatus as ReturnType<typeof vi.fn>;
+const mockUseProviderModels = useProviderModels as ReturnType<typeof vi.fn>;
 
 const mockVoiceList: VoiceListResponse = {
   total: 3,
@@ -73,6 +79,11 @@ const mockVoiceList: VoiceListResponse = {
 describe('Step3Voice', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseProviderModels.mockReturnValue({
+      models: ['llama3.2', 'qwen2.5'],
+      loading: false,
+      error: null,
+    });
     mockFetchMultivoiceStatus.mockResolvedValue({
       spacy_ok: true,
       spacy_model: 'en_core_web_sm',
@@ -183,6 +194,8 @@ describe('Step3Voice', () => {
 
     const multiButton = screen.getByRole('button', { name: /multi.voice/i });
     await userEvent.click(multiButton);
+    await userEvent.click(screen.getByLabelText(/nlp model/i));
+    await userEvent.click(screen.getByRole('option', { name: 'qwen2.5' }));
     await userEvent.click(screen.getByRole('button', { name: /analyze cast/i }));
 
     await waitFor(() => {
@@ -196,11 +209,97 @@ describe('Step3Voice', () => {
         narrationMode: 'multi',
         voice: 'alba',
         nlpProvider: 'ollama',
-        nlpModel: 'llama3.2',
+        nlpModel: 'qwen2.5',
         speakerVoices: { NARRATOR: 'alba', alice: 'dave' },
         annotatedChaptersPath: '/cache/annotated.json',
         rosterCachePath: '/cache/roster.json',
       })
     );
+  });
+
+  it('allows manual model entry when provider model discovery is unsupported', async () => {
+    mockFetchVoices.mockResolvedValue(mockVoiceList);
+    mockUseProviderModels.mockReturnValue({
+      models: [],
+      loading: false,
+      error: 'This kenkui runtime does not support provider model discovery. Upgrade kenkui and try again.',
+    });
+
+    render(<Step3Voice filePath="/books/great.epub" onBack={vi.fn()} onNext={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Alba (female, en-us)')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /multi.voice/i }));
+    const modelInput = screen.getByLabelText(/nlp model/i);
+    await userEvent.clear(modelInput);
+    await userEvent.type(modelInput, 'llama3.2:latest');
+    await userEvent.click(screen.getByRole('button', { name: /analyze cast/i }));
+
+    expect(mockAnalyzeBook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nlp_model: 'llama3.2:latest',
+        attribution_model: 'llama3.2:latest',
+      })
+    );
+  });
+
+  it('passes the selected character discovery method to analysis', async () => {
+    mockFetchVoices.mockResolvedValue(mockVoiceList);
+
+    render(<Step3Voice filePath="/books/great.epub" onBack={vi.fn()} onNext={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Alba (female, en-us)')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /multi.voice/i }));
+    await userEvent.selectOptions(screen.getByLabelText(/character discovery/i), 'spacy');
+    await userEvent.click(screen.getByRole('button', { name: /analyze cast/i }));
+
+    expect(mockAnalyzeBook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        discovery_method: 'spacy',
+        nlp_provider: 'ollama',
+        attribution_provider: 'ollama',
+      })
+    );
+  });
+
+  it('surfaces malformed analysis results instead of crashing the page', async () => {
+    mockFetchVoices.mockResolvedValue(mockVoiceList);
+    mockFetchTask.mockResolvedValue({
+      task_id: 'analysis-1',
+      type: 'full_analysis',
+      status: 'completed',
+      progress: 100,
+      message: 'Done',
+      result: {
+        book_hash: 'hash123',
+        annotated_chapters_path: '/cache/annotated.json',
+        roster_cache_path: null,
+        nlp_provider: 'ollama',
+        nlp_model: 'llama3.2',
+        attribution_provider: 'ollama',
+        attribution_model: 'llama3.2',
+        cache_status: 'miss',
+      },
+      error: null,
+    });
+
+    render(<Step3Voice filePath="/books/great.epub" onBack={vi.fn()} onNext={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Alba (female, en-us)')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /multi.voice/i }));
+    await userEvent.click(screen.getByRole('button', { name: /analyze cast/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/analysis completed without a character roster/i)).toBeInTheDocument();
+    });
+    expect(mockSuggestCast).not.toHaveBeenCalled();
   });
 });

@@ -41,6 +41,7 @@ beforeEach(() => {
     serverMode: 'local',
     serverUrl: 'http://localhost:45365',
     connectionStatus: 'checking',
+    connectionError: null,
   });
   vi.mocked(nativeCommands.checkServerRuntime).mockReset();
   vi.mocked(nativeCommands.spawnServer).mockReset();
@@ -68,17 +69,14 @@ beforeEach(() => {
     value: 8,
   });
   mockFetch.mockImplementation((url: string) => {
-    const body = url.endsWith('/health')
-      ? {
-          status: 'healthy',
-          capabilities: ['local-queue', 'single-voice', 'multi-voice', 'voices', 'book-parse'],
-        }
-      : { status: 'idle', is_running: false, items: [] };
+    if (url.endsWith('/health')) {
+      return Promise.reject(new Error('connection refused'));
+    }
 
     return Promise.resolve({
       ok: true,
       status: 200,
-      json: () => Promise.resolve(body),
+      json: () => Promise.resolve({ status: 'idle', is_running: false, items: [] }),
     });
   });
 });
@@ -104,8 +102,41 @@ describe('App startup — local mode', () => {
     });
   });
 
-  it('connects after the local server health check succeeds', async () => {
+  it('connects after kengui starts a local server and the health check succeeds', async () => {
     vi.mocked(nativeCommands.checkServerRuntime).mockResolvedValue(true);
+    let healthCalls = 0;
+    mockFetch.mockImplementation((url: string) => {
+      if (url.endsWith('/health')) {
+        healthCalls += 1;
+        if (healthCalls === 1) {
+          return Promise.reject(new Error('connection refused'));
+        }
+
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              status: 'healthy',
+              capabilities: [
+                'local-queue',
+                'single-voice',
+                'multi-voice',
+                'voices',
+                'book-parse',
+                'provider-models',
+                'provider-credentials',
+              ],
+            }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ status: 'idle', is_running: false, items: [] }),
+      });
+    });
 
     render(<App />);
 
@@ -119,8 +150,13 @@ describe('App startup — local mode', () => {
   it('does not replace the dashboard with the connecting screen during a startup recheck', async () => {
     window.history.pushState({}, '', '/dashboard');
     vi.mocked(nativeCommands.checkServerRuntime).mockResolvedValue(true);
+    let healthCalls = 0;
     mockFetch.mockImplementation((url: string) => {
       if (url.endsWith('/health')) {
+        healthCalls += 1;
+        if (healthCalls === 1) {
+          return Promise.reject(new Error('connection refused'));
+        }
         return new Promise(() => {});
       }
 
@@ -151,8 +187,13 @@ describe('App startup — local mode', () => {
   it('does not replace add book with the connecting screen during a startup recheck', async () => {
     window.history.pushState({}, '', '/add');
     vi.mocked(nativeCommands.checkServerRuntime).mockResolvedValue(true);
+    let healthCalls = 0;
     mockFetch.mockImplementation((url: string) => {
       if (url.endsWith('/health')) {
+        healthCalls += 1;
+        if (healthCalls === 1) {
+          return Promise.reject(new Error('connection refused'));
+        }
         return new Promise(() => {});
       }
 
@@ -165,10 +206,6 @@ describe('App startup — local mode', () => {
 
     render(<App />);
 
-    await waitFor(() => {
-      expect(nativeCommands.spawnServer).toHaveBeenCalled();
-    });
-
     expect(screen.getByRole('heading', { name: /add book/i })).toBeInTheDocument();
     expect(screen.queryByText(/starting kenkui/i)).not.toBeInTheDocument();
   });
@@ -176,6 +213,29 @@ describe('App startup — local mode', () => {
   it('stays on add book after local server health succeeds', async () => {
     window.history.pushState({}, '', '/add');
     vi.mocked(nativeCommands.checkServerRuntime).mockResolvedValue(true);
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve(
+            url.endsWith('/health')
+              ? {
+                  status: 'healthy',
+                  capabilities: [
+                    'local-queue',
+                    'single-voice',
+                    'multi-voice',
+                    'voices',
+                    'book-parse',
+                    'provider-models',
+                    'provider-credentials',
+                  ],
+                }
+              : {}
+          ),
+      })
+    );
 
     render(<App />);
 
@@ -183,5 +243,68 @@ describe('App startup — local mode', () => {
       expect(screen.getByRole('heading', { name: /add book/i })).toBeInTheDocument();
     });
     expect(window.location.pathname).toBe('/add');
+  });
+
+  it('attaches to an already running compatible local runtime without spawning', async () => {
+    vi.mocked(nativeCommands.checkServerRuntime).mockResolvedValue(true);
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve(
+            url.endsWith('/health')
+              ? {
+                  status: 'healthy',
+                  capabilities: [
+                    'local-queue',
+                    'single-voice',
+                    'multi-voice',
+                    'voices',
+                    'book-parse',
+                    'provider-models',
+                    'provider-credentials',
+                  ],
+                }
+              : { status: 'idle', is_running: false, items: [] }
+          ),
+      })
+    );
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /queue/i })).toBeInTheDocument();
+    });
+
+    expect(nativeCommands.spawnServer).not.toHaveBeenCalled();
+    expect(updateConfig).not.toHaveBeenCalled();
+  });
+
+  it('attaches to an older local runtime without provider model discovery', async () => {
+    vi.mocked(nativeCommands.checkServerRuntime).mockResolvedValue(true);
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve(
+            url.endsWith('/health')
+              ? {
+                  status: 'healthy',
+                  capabilities: ['local-queue', 'single-voice', 'multi-voice', 'voices', 'book-parse'],
+                }
+              : {}
+          ),
+      })
+    );
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /queue/i })).toBeInTheDocument();
+    });
+
+    expect(nativeCommands.spawnServer).not.toHaveBeenCalled();
   });
 });

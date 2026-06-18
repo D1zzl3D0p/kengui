@@ -5,6 +5,13 @@ import type { LocalRuntimeStatus, RuntimeHealth, ServerMode } from '../platform'
 
 export type { LocalRuntimeStatus, RuntimeHealth } from '../platform';
 
+export class RuntimeCompatibilityError extends Error {
+  constructor(message: string, public readonly missingCapabilities: string[] = []) {
+    super(message);
+    this.name = 'RuntimeCompatibilityError';
+  }
+}
+
 export interface RuntimeAdapter {
   mode: ServerMode;
   checkAvailable: () => Promise<boolean>;
@@ -22,13 +29,37 @@ async function fetchHealth(serverUrl: string, mode: ServerMode): Promise<Runtime
     throw new Error(`Server health check failed with ${res.status}`);
   }
   const health = await res.json() as RuntimeHealth;
-  if (
-    mode === 'local' &&
-    !health.capabilities?.includes('multi-voice')
-  ) {
-    throw new Error('Local runtime is not a compatible kenkui serve instance.');
+  if (mode === 'local') {
+    assertLocalRuntimeCompatible(health);
   }
   return health;
+}
+
+export function missingCapabilities(
+  health: RuntimeHealth | null | undefined,
+  requiredCapabilities: readonly string[]
+): string[] {
+  const capabilities = new Set(health?.capabilities ?? []);
+  return requiredCapabilities.filter((capability) => !capabilities.has(capability));
+}
+
+export function supportsCapability(
+  health: RuntimeHealth | null | undefined,
+  capability: string
+): boolean {
+  return !missingCapabilities(health, [capability]).length;
+}
+
+export function assertLocalRuntimeCompatible(health: RuntimeHealth): RuntimeHealth {
+  return health;
+}
+
+export function supportsProviderModels(health: RuntimeHealth | null | undefined): boolean {
+  return supportsCapability(health, 'provider-models');
+}
+
+export function supportsProviderCredentials(health: RuntimeHealth | null | undefined): boolean {
+  return supportsCapability(health, 'provider-credentials');
 }
 
 function sleep(ms: number): Promise<void> {

@@ -17,6 +17,7 @@ export interface WizardState {
   voice: string;
   nlpProvider?: string;
   nlpModel?: string;
+  discoveryMethod?: 'auto' | 'llm' | 'booknlp' | 'spacy';
   speakerVoices?: Record<string, string>;
   annotatedChaptersPath?: string | null;
   rosterCachePath?: string | null;

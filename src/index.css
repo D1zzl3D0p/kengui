@@ -173,6 +173,8 @@
   select,
   textarea {
     @apply bg-card text-foreground;
+    box-sizing: border-box;
+    max-width: 100%;
   }
   ::selection {
     background: rgb(47 111 106 / 24%);
