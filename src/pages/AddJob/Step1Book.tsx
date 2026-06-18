@@ -14,6 +14,19 @@ interface Props {
   onNext: (data: Step1Data) => void;
 }
 
+function metadataString(metadata: Record<string, unknown>, key: string): string | null {
+  const value = metadata[key];
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function bookCoverSrc(book: BookParseResponse): string | null {
+  return (
+    metadataString(book.metadata, 'cover_data_url') ??
+    metadataString(book.metadata, 'cover_url') ??
+    metadataString(book.metadata, 'cover_path')
+  );
+}
+
 export default function Step1Book({ onNext }: Props) {
   const [filePath, setFilePath] = useState<string | null>(null);
   const [book, setBook] = useState<BookParseResponse | null>(null);
@@ -41,6 +54,7 @@ export default function Step1Book({ onNext }: Props) {
 
   const title = book?.metadata?.title as string | undefined;
   const author = book?.metadata?.author as string | undefined;
+  const coverSrc = book ? bookCoverSrc(book) : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -71,9 +85,17 @@ export default function Step1Book({ onNext }: Props) {
 
       {book && (
         <div className="rounded-lg border bg-card p-4 flex gap-4 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
-          <div className="flex h-20 w-14 shrink-0 items-center justify-center rounded bg-[var(--color-deep-slate)] text-[var(--color-parchment)]">
-            <BookOpen className="size-5" aria-hidden="true" />
-          </div>
+          {coverSrc ? (
+            <img
+              src={coverSrc}
+              alt={`Cover for ${title ?? 'selected book'}`}
+              className="h-20 w-14 shrink-0 rounded object-cover shadow-sm"
+            />
+          ) : (
+            <div className="flex h-20 w-14 shrink-0 items-center justify-center rounded bg-[var(--color-deep-slate)] text-[var(--color-parchment)]">
+              <BookOpen className="size-5" aria-hidden="true" />
+            </div>
+          )}
           <div className="min-w-0 flex flex-col gap-1">
             {title && <p className="truncate font-medium text-lg">{title}</p>}
             {author && <p className="text-muted-foreground text-sm">{author}</p>}

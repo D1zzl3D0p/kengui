@@ -62,4 +62,22 @@ describe('Step1Book', () => {
       expect.objectContaining({ filePath: '/path/to/book.epub', book: mockBook })
     );
   });
+
+  it('renders the parsed book cover when metadata includes cover_data_url', async () => {
+    vi.mocked(pickBookFile).mockResolvedValue('/path/to/book.epub');
+    vi.mocked(booksApi.parseBook).mockResolvedValue({
+      ...mockBook,
+      metadata: {
+        ...mockBook.metadata,
+        cover_data_url: 'data:image/png;base64,iVBORw0KGgo=',
+      },
+    });
+
+    render(<Step1Book onNext={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /choose file/i }));
+
+    const cover = await screen.findByRole('img', { name: /cover for dune/i });
+    expect(cover).toHaveAttribute('src', 'data:image/png;base64,iVBORw0KGgo=');
+  });
 });
