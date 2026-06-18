@@ -54,12 +54,14 @@ export default function Step4Review({ state, onBack, onDone }: Props) {
           state.narrationMode === 'multi' ? state.annotatedChaptersPath ?? null : null,
         chapter_voices: {},
         roster_cache_path: state.narrationMode === 'multi' ? state.rosterCachePath ?? null : null,
+        series_slug: state.seriesSlug ?? null,
         job_nlp_provider: state.narrationMode === 'multi' ? state.nlpProvider ?? null : null,
         job_nlp_model: state.narrationMode === 'multi' ? state.nlpModel ?? null : null,
         job_character_discovery_method:
           state.narrationMode === 'multi' ? state.discoveryMethod ?? 'auto' : null,
         job_attribution_provider: state.narrationMode === 'multi' ? state.nlpProvider ?? null : null,
         job_attribution_model: state.narrationMode === 'multi' ? state.nlpModel ?? null : null,
+        job_attribution_execution_mode: 'local',
       });
       try {
         await startQueue();
@@ -114,6 +116,15 @@ export default function Step4Review({ state, onBack, onDone }: Props) {
           </span>
           <span className="text-sm capitalize">{state.narrationMode}</span>
         </div>
+
+        {state.seriesSlug && (
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Series
+            </span>
+            <span className="text-sm">{state.seriesSlug}</span>
+          </div>
+        )}
 
         {state.narrationMode === 'single' && (
           <div className="flex flex-col gap-1">
