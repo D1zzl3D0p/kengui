@@ -228,6 +228,20 @@ describe('Dashboard', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows Remove button for cancelled jobs', async () => {
+    vi.mocked(queueApi.removeJob).mockResolvedValue(undefined);
+    vi.mocked(queueApi.fetchQueue).mockResolvedValue({
+      items: [{ ...mockJob, status: 'cancelled' }],
+      current_item: null,
+      pending_count: 0,
+      completed_count: 0,
+      failed_count: 0,
+    });
+    renderDashboard();
+    await waitFor(() => screen.getByText('Test Book'));
+    expect(screen.getByRole('button', { name: /remove/i })).toBeInTheDocument();
+  });
+
   it('shows start errors inline', async () => {
     vi.mocked(queueApi.startQueue).mockRejectedValue(new Error('already running'));
     vi.mocked(queueApi.fetchQueue).mockResolvedValue({

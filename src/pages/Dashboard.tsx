@@ -290,7 +290,7 @@ function JobRow({ job }: { job: JobResponse }) {
             {cancel.isPending ? 'Cancelling...' : 'Cancel'}
           </Button>
         )}
-        {(job.status === 'failed' || job.status === 'completed') && (
+        {(job.status === 'failed' || job.status === 'completed' || job.status === 'cancelled') && (
           <Button size="sm" variant="destructive" onClick={() => remove.mutate()} disabled={remove.isPending}>
             <X aria-hidden="true" />
             {remove.isPending ? 'Removing...' : 'Remove'}
