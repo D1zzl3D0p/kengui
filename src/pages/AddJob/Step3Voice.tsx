@@ -243,8 +243,8 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
       );
       setCastWarnings(suggested.warnings);
       setSpeakerVoices({
-        NARRATOR: narratorVoice,
         ...suggested.speaker_voices,
+        NARRATOR: narratorVoice,
       });
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Analysis failed.');
@@ -568,6 +568,32 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
                   Analysis source: {analysisResult.cache_status === 'hit' ? 'cached result' : 'fresh run'}
                 </p>
               </div>
+              <label
+                className="grid gap-2 rounded-md border bg-background/45 p-3 text-sm md:grid-cols-[minmax(0,1fr)_14rem]"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">Narrator</span>
+                  <span className="text-xs text-muted-foreground">
+                    Framing voice for narration and non-dialogue passages
+                  </span>
+                </span>
+                <select
+                  aria-label="Voice for Narrator"
+                  className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
+                  value={selectedVoice}
+                  onChange={(event) => setSelectedVoice(event.target.value)}
+                >
+                  {Object.entries(voicesByGender).map(([genderLabel, gVoices]) => (
+                    <optgroup key={genderLabel} label={genderLabel}>
+                      {gVoices.map((voice) => (
+                        <option key={voice.name} value={voice.name}>
+                          {voice.display_label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </label>
               {analysisResult.characters.map((character) => (
                 <label
                   key={character.character_id}

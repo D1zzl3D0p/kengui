@@ -481,6 +481,26 @@ describe('Step3Voice', () => {
     });
   });
 
+  it('displays narrator as an editable cast row in multi-voice mode', async () => {
+    mockFetchVoices.mockResolvedValue(mockVoiceList);
+    const onNext = vi.fn();
+
+    render(<Step3Voice filePath="/books/great.epub" onBack={vi.fn()} onNext={onNext} />);
+
+    await waitFor(() => expect(screen.getByText('Alba (female, en-us)')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /multi.voice/i }));
+    await userEvent.click(screen.getByRole('button', { name: /analyze cast/i }));
+
+    await waitFor(() => expect(screen.getByText('Narrator')).toBeInTheDocument());
+    await userEvent.selectOptions(screen.getByLabelText(/voice for narrator/i), 'dave');
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+
+    expect(onNext).toHaveBeenCalledWith(expect.objectContaining({
+      voice: 'dave',
+      speakerVoices: expect.objectContaining({ NARRATOR: 'dave' }),
+    }));
+  });
+
   it('displays gender_pronoun for each character in cast table', async () => {
     mockFetchVoices.mockResolvedValue(mockVoiceList);
     const onNext = vi.fn();
