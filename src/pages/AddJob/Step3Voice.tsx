@@ -10,6 +10,7 @@ import { fetchConfig } from '../../api/config';
 import type { NarrationMode } from '../../api/queue';
 import { NLP_PROVIDER_OPTIONS } from '../../lib/providerCatalog';
 import { useProviderModels } from '../../hooks/useProviderModels';
+import { fetchSeries, type SeriesModel } from '../../api/series';
 
 const DEFAULT_NARRATOR_VOICE = 'alba';
 
@@ -102,6 +103,8 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [seriesList, setSeriesList] = useState<SeriesModel[]>([]);
+  const [selectedSeriesSlug, setSelectedSeriesSlug] = useState<string>('');
   const {
     models: nlpModelOptions,
     loading: nlpModelsLoading,
@@ -138,6 +141,12 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
       .catch(() => {
         // Config defaults are a convenience; keep local fallbacks if unavailable.
       });
+  }, []);
+
+  useEffect(() => {
+    fetchSeries()
+      .then((data) => setSeriesList(data.series))
+      .catch(() => setSeriesList([]));
   }, []);
 
   useEffect(() => {
@@ -180,6 +189,16 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
     () => cacheCandidates.find((candidate) => candidate.cache_id === selectedCacheId),
     [cacheCandidates, selectedCacheId]
   );
+
+  const voicesByGender = useMemo(() => {
+    const groups: Record<string, VoiceResponse[]> = {};
+    for (const v of availableVoices) {
+      const key = v.gender ?? 'Unknown';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(v);
+    }
+    return Object.fromEntries(Object.entries(groups).sort(([a], [b]) => a.localeCompare(b)));
+  }, [availableVoices]);
 
   async function runAnalysis(useCache = false, cacheCandidate?: AnalysisCacheCandidate) {
     const narratorVoice = selectedVoice || DEFAULT_NARRATOR_VOICE;
@@ -226,7 +245,7 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
   function handleNext() {
     const narratorVoice = selectedVoice || DEFAULT_NARRATOR_VOICE;
     if (narrationMode === 'single') {
-      onNext({ narrationMode: 'single', voice: narratorVoice });
+      onNext({ narrationMode: 'single', voice: narratorVoice, seriesSlug: selectedSeriesSlug || null });
       return;
     }
     if (!analysisResult) return;
@@ -240,6 +259,7 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
       annotatedChaptersPath: analysisResult.annotated_chapters_path,
       rosterCachePath: analysisResult.roster_cache_path,
       characters: analysisResult.characters,
+      seriesSlug: selectedSeriesSlug || null,
     });
   }
 
@@ -417,6 +437,26 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
             </p>
           )}
 
+          <label htmlFor="series-select" className="flex flex-col gap-1 text-sm">
+            <span className="font-medium">Series (optional)</span>
+            <select
+              id="series-select"
+              value={selectedSeriesSlug}
+              onChange={(e) => setSelectedSeriesSlug(e.target.value)}
+              className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
+            >
+              <option value="">None — treat as standalone book</option>
+              {seriesList.map((s) => (
+                <option key={s.slug} value={s.slug}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-muted-foreground">
+              If this book belongs to a series, select it to inherit voice assignments from previous books.
+            </span>
+          </label>
+
           <div className="flex flex-wrap gap-2">
             <Button
               className="w-fit"
@@ -447,7 +487,11 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
 
           {analysisTask && (
             <p className="rounded-md border bg-background/45 px-3 py-2 text-sm text-muted-foreground">
-              {analysisTask.status} {analysisTask.progress}% · {analysisTask.message}
+              {analysisTask.message?.toLowerCase().includes('attribut')
+                ? '✦ Attribution'
+                : '✦ Character discovery'}{' '}
+              — {analysisTask.status} {analysisTask.progress}%
+              {analysisTask.message ? ` · ${analysisTask.message}` : ''}
             </p>
           )}
 
@@ -474,6 +518,9 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
                     <span className="block truncate font-medium">{character.display_name}</span>
                     <span className="text-xs text-muted-foreground">
                       {character.quote_count} quotes · {character.mention_count} mentions
+                      {character.gender_pronoun && (
+                        <span className="ml-1">· {character.gender_pronoun}</span>
+                      )}
                     </span>
                   </span>
                   <select
@@ -486,10 +533,14 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
                       }))
                     }
                   >
-                    {availableVoices.map((voice) => (
-                      <option key={voice.name} value={voice.name}>
-                        {voice.display_label}
-                      </option>
+                    {Object.entries(voicesByGender).map(([genderLabel, gVoices]) => (
+                      <optgroup key={genderLabel} label={genderLabel}>
+                        {gVoices.map((voice) => (
+                          <option key={voice.name} value={voice.name}>
+                            {voice.display_label}
+                          </option>
+                        ))}
+                      </optgroup>
                     ))}
                   </select>
                 </label>

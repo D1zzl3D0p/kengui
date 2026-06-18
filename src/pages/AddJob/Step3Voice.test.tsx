@@ -30,11 +30,16 @@ vi.mock('../../api/status', () => ({
   fetchMultivoiceStatus: vi.fn(),
 }));
 
+vi.mock('../../api/series', () => ({
+  fetchSeries: vi.fn(),
+}));
+
 import { fetchVoices, suggestCast } from '../../api/voices';
 import { analyzeBook, fetchAnalysisCaches } from '../../api/books';
 import { fetchConfig } from '../../api/config';
 import { fetchTask } from '../../api/tasks';
 import { fetchMultivoiceStatus } from '../../api/status';
+import { fetchSeries } from '../../api/series';
 import { useProviderModels } from '../../hooks/useProviderModels';
 const mockFetchVoices = fetchVoices as ReturnType<typeof vi.fn>;
 const mockSuggestCast = suggestCast as ReturnType<typeof vi.fn>;
@@ -43,6 +48,7 @@ const mockFetchAnalysisCaches = fetchAnalysisCaches as ReturnType<typeof vi.fn>;
 const mockFetchConfig = fetchConfig as ReturnType<typeof vi.fn>;
 const mockFetchTask = fetchTask as ReturnType<typeof vi.fn>;
 const mockFetchMultivoiceStatus = fetchMultivoiceStatus as ReturnType<typeof vi.fn>;
+const mockFetchSeries = fetchSeries as ReturnType<typeof vi.fn>;
 const mockUseProviderModels = useProviderModels as ReturnType<typeof vi.fn>;
 
 const mockVoiceList: VoiceListResponse = {
@@ -107,6 +113,7 @@ describe('Step3Voice', () => {
       },
     });
     mockFetchAnalysisCaches.mockResolvedValue({ book_hash: 'hash123', candidates: [] });
+    mockFetchSeries.mockResolvedValue({ series: [], total: 0 });
     mockAnalyzeBook.mockResolvedValue({
       task_id: 'analysis-1',
       type: 'full_analysis',
@@ -195,7 +202,7 @@ describe('Step3Voice', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /next/i }));
 
-    expect(onNext).toHaveBeenCalledWith({ narrationMode: 'single', voice: 'dave' });
+    expect(onNext).toHaveBeenCalledWith(expect.objectContaining({ narrationMode: 'single', voice: 'dave' }));
   });
 
   it('analyzes and calls onNext with multi mode cast data', async () => {
@@ -397,5 +404,66 @@ describe('Step3Voice', () => {
       expect(screen.getByText(/analysis completed without a character roster/i)).toBeInTheDocument();
     });
     expect(mockSuggestCast).not.toHaveBeenCalled();
+  });
+
+  it('shows series selector in multi-voice mode', async () => {
+    mockFetchVoices.mockResolvedValue(mockVoiceList);
+    mockFetchSeries.mockResolvedValue({
+      series: [{ slug: 'hp', name: 'Harry Potter' }],
+      total: 1,
+    });
+
+    render(<Step3Voice filePath="/books/great.epub" onBack={vi.fn()} onNext={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText('Alba (female, en-us)')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /multi.voice/i }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/series \(optional\)/i)).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: /harry potter/i })).toBeInTheDocument();
+    });
+  });
+
+  it('displays gender_pronoun for each character in cast table', async () => {
+    mockFetchVoices.mockResolvedValue(mockVoiceList);
+    const onNext = vi.fn();
+
+    render(<Step3Voice filePath="/books/great.epub" onBack={vi.fn()} onNext={onNext} />);
+
+    await waitFor(() => expect(screen.getByText('Alba (female, en-us)')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /multi.voice/i }));
+    await userEvent.click(screen.getByRole('button', { name: /analyze cast/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Alice')).toBeInTheDocument();
+      // gender_pronoun 'she' should appear in the character row
+      expect(screen.getByText(/she/)).toBeInTheDocument();
+    });
+  });
+
+  it('passes seriesSlug in onNext payload when series is selected', async () => {
+    mockFetchVoices.mockResolvedValue(mockVoiceList);
+    mockFetchSeries.mockResolvedValue({
+      series: [{ slug: 'hp', name: 'Harry Potter' }],
+      total: 1,
+    });
+    const onNext = vi.fn();
+
+    render(<Step3Voice filePath="/books/great.epub" onBack={vi.fn()} onNext={onNext} />);
+
+    await waitFor(() => expect(screen.getByText('Alba (female, en-us)')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /multi.voice/i }));
+    await waitFor(() => expect(screen.getByLabelText(/series \(optional\)/i)).toBeInTheDocument());
+    await userEvent.selectOptions(screen.getByLabelText(/series \(optional\)/i), 'hp');
+    await userEvent.click(screen.getByRole('button', { name: /analyze cast/i }));
+
+    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+
+    expect(onNext).toHaveBeenCalledWith(expect.objectContaining({ seriesSlug: 'hp' }));
   });
 });
