@@ -312,12 +312,12 @@ export default function Dashboard() {
 
   return (
     <Layout>
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mb-6 flex flex-col gap-4 rounded-2xl border bg-card/70 p-5 shadow-[0_12px_36px_rgb(40_58_66_/_8%)] sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-sm font-medium text-primary">Library</p>
           <h1 className="text-3xl font-semibold">Conversion Queue</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Track books as they move from page to voice.
+            Welcome to the Kenku scriptorium. Track books as they move from page to voice.
           </p>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Local runs request all CPU threads, so several chapters can process in parallel.
@@ -364,13 +364,13 @@ export default function Dashboard() {
 
       {data && data.items.length === 0 && (
         <div className="flex flex-col items-center gap-4 rounded-lg border bg-card px-6 py-16 text-center shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
-          <div className="flex size-14 items-center justify-center rounded-lg bg-muted text-primary">
+          <div className="flex size-16 items-center justify-center rounded-2xl border bg-[radial-gradient(circle_at_35%_25%,rgb(184_155_77_/_32%),rgb(47_111_106_/_10%))] text-primary shadow-inner">
             <ListMusic className="size-6" aria-hidden="true" />
           </div>
           <div>
             <h2 className="text-2xl font-semibold">Your shelf is waiting.</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              No jobs in queue. Add an ebook to begin turning pages into voice.
+              No jobs in queue. Hand the Kenku an ebook and it will start turning pages into voice.
             </p>
           </div>
           <Button onClick={() => navigate('/add')}>Add Book</Button>

@@ -33,10 +33,10 @@ export function Layout({ children }: Props) {
     <div className="min-h-screen bg-transparent text-foreground md:grid md:min-h-screen md:grid-cols-[15rem_minmax(0,1fr)] md:items-stretch">
       <aside className="hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex md:min-h-screen md:flex-col">
         <div className="flex items-center gap-3 border-b border-sidebar-border px-5 py-5">
-          <span className="font-heading text-5xl font-semibold leading-none">K</span>
+          <span className="flex size-12 items-center justify-center rounded-2xl border border-sidebar-border bg-[radial-gradient(circle_at_35%_25%,rgb(184_155_77_/_45%),rgb(243_232_214_/_14%)_42%,rgb(243_232_214_/_6%))] font-heading text-4xl font-semibold leading-none shadow-[0_10px_30px_rgb(0_0_0_/_18%)]">K</span>
           <div>
             <p className="font-heading text-xl font-semibold leading-none">KenGUI</p>
-            <p className="mt-1 text-xs text-sidebar-foreground/70">From page to voice</p>
+            <p className="mt-1 text-xs text-sidebar-foreground/70">Kenku scriptorium</p>
           </div>
         </div>
 
@@ -77,17 +77,17 @@ export function Layout({ children }: Props) {
         </nav>
 
         <div className="mt-auto border-t border-sidebar-border p-4 text-xs leading-relaxed text-sidebar-foreground/68">
-          Local, external, and hosted runtimes share one calm conversion flow.
+          A careful little mimic turns pages into voices — local, external, or hosted.
         </div>
       </aside>
 
       <div className="flex min-h-screen flex-col">
         <header className="sticky top-0 z-10 flex items-center justify-between border-b bg-background/92 px-4 py-3 backdrop-blur md:hidden">
           <div className="flex items-center gap-3">
-            <span className="font-heading text-4xl font-semibold leading-none">K</span>
+            <span className="flex size-10 items-center justify-center rounded-xl border bg-card font-heading text-3xl font-semibold leading-none shadow-sm">K</span>
             <div>
               <p className="font-heading text-xl font-semibold leading-none">KenGUI</p>
-              <p className="mt-1 text-xs text-muted-foreground">From page to voice</p>
+              <p className="mt-1 text-xs text-muted-foreground">Kenku scriptorium</p>
             </div>
           </div>
           <Link
