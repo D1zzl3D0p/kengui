@@ -60,6 +60,7 @@ export interface BookAnalyzeRequest {
   discovery_method?: string | null;
   attribution_provider?: string | null;
   attribution_model?: string | null;
+  use_cache?: boolean;
 }
 
 export const parseBook = (ebook_path: string) =>

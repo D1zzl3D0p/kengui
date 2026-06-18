@@ -35,6 +35,7 @@ describe('books api', () => {
       ebook_path: '/books/great.epub',
       nlp_provider: 'openrouter',
       nlp_model: 'openai/gpt-4.1-mini',
+      use_cache: false,
     });
 
     expect(mockFetch).toHaveBeenCalledWith(
@@ -45,6 +46,7 @@ describe('books api', () => {
           ebook_path: '/books/great.epub',
           nlp_provider: 'openrouter',
           nlp_model: 'openai/gpt-4.1-mini',
+          use_cache: false,
         }),
       })
     );

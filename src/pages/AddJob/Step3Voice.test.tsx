@@ -198,8 +198,13 @@ describe('Step3Voice', () => {
     await userEvent.click(screen.getByRole('option', { name: 'qwen2.5' }));
     await userEvent.click(screen.getByRole('button', { name: /analyze cast/i }));
 
+    expect(mockAnalyzeBook).toHaveBeenCalledWith(
+      expect.objectContaining({ use_cache: false })
+    );
+
     await waitFor(() => {
       expect(screen.getByText('Alice')).toBeInTheDocument();
+      expect(screen.getByText(/analysis source: fresh run/i)).toBeInTheDocument();
     });
 
     await userEvent.click(screen.getByRole('button', { name: /next/i }));
@@ -215,6 +220,53 @@ describe('Step3Voice', () => {
         rosterCachePath: '/cache/roster.json',
       })
     );
+  });
+
+  it('uses cache only when the user chooses cached analysis', async () => {
+    mockFetchVoices.mockResolvedValue(mockVoiceList);
+    mockFetchTask.mockResolvedValueOnce({
+      task_id: 'analysis-1',
+      type: 'full_analysis',
+      status: 'completed',
+      progress: 100,
+      message: 'Done',
+      result: {
+        characters: [
+          {
+            character_id: 'alice',
+            display_name: 'Alice',
+            quote_count: 4,
+            mention_count: 12,
+            gender_pronoun: 'she',
+          },
+        ],
+        book_hash: 'hash123',
+        annotated_chapters_path: '/cache/annotated.json',
+        roster_cache_path: '/cache/roster.json',
+        nlp_provider: 'ollama',
+        nlp_model: 'llama3.2',
+        attribution_provider: 'ollama',
+        attribution_model: 'llama3.2',
+        cache_status: 'hit',
+      },
+      error: null,
+    });
+
+    render(<Step3Voice filePath="/books/great.epub" onBack={vi.fn()} onNext={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Alba (female, en-us)')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /multi.voice/i }));
+    await userEvent.click(screen.getByRole('button', { name: /use cache if available/i }));
+
+    expect(mockAnalyzeBook).toHaveBeenCalledWith(
+      expect.objectContaining({ use_cache: true })
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/analysis source: cached result/i)).toBeInTheDocument();
+    });
   });
 
   it('allows manual model entry when provider model discovery is unsupported', async () => {

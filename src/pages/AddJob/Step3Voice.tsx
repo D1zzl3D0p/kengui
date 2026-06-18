@@ -140,7 +140,7 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
     [voices]
   );
 
-  async function runAnalysis() {
+  async function runAnalysis(useCache = false) {
     const narratorVoice = selectedVoice || DEFAULT_NARRATOR_VOICE;
     setAnalyzing(true);
     setError(null);
@@ -154,6 +154,7 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
         discovery_method: discoveryMethod,
         attribution_provider: nlpProvider,
         attribution_model: nlpModel,
+        use_cache: useCache,
       });
       setAnalysisTask(task);
       const completed = await pollAnalysisTask(task.task_id, setAnalysisTask);
@@ -331,18 +332,32 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
             </p>
           )}
 
-          <Button
-            className="w-fit"
-            onClick={runAnalysis}
-            disabled={
-              analyzing ||
-              loading ||
-              (narrationMode === 'multi' && (nlpModelsLoading || !nlpModel))
-            }
-          >
-            <RefreshCw aria-hidden="true" />
-            {analyzing ? 'Analyzing...' : 'Analyze cast'}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              className="w-fit"
+              onClick={() => void runAnalysis(false)}
+              disabled={
+                analyzing ||
+                loading ||
+                (narrationMode === 'multi' && (nlpModelsLoading || !nlpModel))
+              }
+            >
+              <RefreshCw aria-hidden="true" />
+              {analyzing ? 'Analyzing...' : 'Analyze cast'}
+            </Button>
+            <Button
+              variant="outline"
+              className="w-fit"
+              onClick={() => void runAnalysis(true)}
+              disabled={
+                analyzing ||
+                loading ||
+                (narrationMode === 'multi' && (nlpModelsLoading || !nlpModel))
+              }
+            >
+              Use cache if available
+            </Button>
+          </div>
 
           {analysisTask && (
             <p className="rounded-md border bg-background/45 px-3 py-2 text-sm text-muted-foreground">
@@ -358,7 +373,12 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
 
           {analysisResult && (
             <div className="flex flex-col gap-3">
-              <h3 className="font-medium">Cast</h3>
+              <div>
+                <h3 className="font-medium">Cast</h3>
+                <p className="text-xs text-muted-foreground">
+                  Analysis source: {analysisResult.cache_status === 'hit' ? 'cached result' : 'fresh run'}
+                </p>
+              </div>
               {analysisResult.characters.map((character) => (
                 <label
                   key={character.character_id}
