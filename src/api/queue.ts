@@ -91,7 +91,12 @@ export const pauseJob = (id: string) =>
   apiRequest<void>(`/queue/${id}/pause`, { method: 'POST' });
 export const resumeJob = (id: string) =>
   apiRequest<void>(`/queue/${id}/resume`, { method: 'POST' });
+// cancelJob: Sends DELETE to the queue endpoint, which kenkui interprets as
+// "stop processing and remove this job". Valid for pending/processing/paused jobs.
+// NOTE: kenkui's DELETE endpoint both cancels AND removes — there is no separate cancel HTTP verb.
+// A running job that is DELETEd will be stopped and removed immediately.
 export const cancelJob = (id: string) =>
   apiRequest<void>(`/queue/${id}`, { method: 'DELETE' });
+// removeJob: Same HTTP call — kenkui removes terminal (completed/failed/cancelled) jobs.
 export const removeJob = (id: string) =>
   apiRequest<void>(`/queue/${id}`, { method: 'DELETE' });
