@@ -11,10 +11,11 @@ import Connecting from './pages/Connecting';
 import Dashboard from './pages/Dashboard';
 import Settings from './pages/Settings';
 import Voices from './pages/Voices';
+import Audiobooks from './pages/Audiobooks';
 import AddJob from './pages/AddJob';
 
 const queryClient = new QueryClient();
-const APP_ROUTES = ['/dashboard', '/add', '/settings', '/voices'];
+const APP_ROUTES = ['/dashboard', '/add', '/settings', '/voices', '/audiobooks'];
 
 function isAppRoute(pathname: string): boolean {
   return APP_ROUTES.some((route) =>
@@ -174,6 +175,7 @@ function AppRouter() {
       <Route path="/installing" element={<Installing />} />
       <Route path="/connecting" element={<Connecting />} />
       <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/audiobooks" element={<Audiobooks />} />
       <Route path="/voices" element={<Voices />} />
       <Route path="/add/*" element={<AddJob />} />
       <Route path="/settings" element={<Settings />} />

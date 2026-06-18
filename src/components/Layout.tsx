@@ -18,12 +18,11 @@ const navItems = [
   { to: '/dashboard', label: 'Library', icon: Library },
   { to: '/add', label: 'Convert', icon: BookOpen },
   { to: '/voices', label: 'Voices', icon: Waves },
-  { to: '/dashboard', label: 'Audiobooks', icon: Headphones, disabled: true },
+  { to: '/audiobooks', label: 'Audiobooks', icon: Headphones },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
-function isActive(pathname: string, to: string, label: string) {
-  if (label === 'Audiobooks') return false;
+function isActive(pathname: string, to: string) {
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
@@ -52,13 +51,11 @@ export function Layout({ children }: Props) {
         </div>
 
         <nav className="flex flex-1 flex-col gap-1 px-3 text-sm">
-          {navItems.map(({ to, label, icon: Icon, disabled }) => {
-            const active = isActive(location.pathname, to, label);
+          {navItems.map(({ to, label, icon: Icon }) => {
+            const active = isActive(location.pathname, to);
             const className = active
               ? 'bg-sidebar-primary text-sidebar-primary-foreground'
-              : disabled
-                ? 'text-sidebar-foreground/45'
-                : 'text-sidebar-foreground/78 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground';
+              : 'text-sidebar-foreground/78 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground';
 
             const content = (
               <>
@@ -67,15 +64,7 @@ export function Layout({ children }: Props) {
               </>
             );
 
-            return disabled ? (
-              <span
-                key={label}
-                aria-disabled="true"
-                className={`flex min-h-11 items-center gap-3 rounded-lg px-3 transition-colors ${className}`}
-              >
-                {content}
-              </span>
-            ) : (
+            return (
               <Link
                 key={label}
                 to={to}
@@ -117,10 +106,10 @@ export function Layout({ children }: Props) {
         <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-4 border-t bg-card/95 text-xs shadow-[0_-8px_24px_rgb(40_58_66_/_10%)] backdrop-blur md:hidden">
           {navItems
             .filter((item) => ['Library', 'Convert', 'Voices', 'Settings'].includes(item.label))
-            .map(({ to, label, icon: Icon, disabled }) => {
-              const active = isActive(location.pathname, to, label);
+            .map(({ to, label, icon: Icon }) => {
+              const active = isActive(location.pathname, to);
               const className = `flex min-h-14 flex-col items-center justify-center gap-1 ${
-                active ? 'text-primary' : disabled ? 'text-muted-foreground/55' : 'text-muted-foreground'
+                active ? 'text-primary' : 'text-muted-foreground'
               }`;
               const content = (
                 <>
@@ -129,11 +118,7 @@ export function Layout({ children }: Props) {
                 </>
               );
 
-              return disabled ? (
-                <span key={label} aria-disabled="true" className={className}>
-                  {content}
-                </span>
-              ) : (
+              return (
                 <Link key={label} to={to} className={className}>
                   {content}
                 </Link>
