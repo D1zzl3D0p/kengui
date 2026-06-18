@@ -22,6 +22,7 @@ export interface WizardState {
   annotatedChaptersPath?: string | null;
   rosterCachePath?: string | null;
   characters?: AnalysisCharacter[];
+  seriesSlug?: string | null;
 }
 
 type Step = 1 | 2 | 3 | 4;

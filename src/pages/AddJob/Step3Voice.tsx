@@ -61,6 +61,7 @@ interface Step3Data {
   annotatedChaptersPath?: string | null;
   rosterCachePath?: string | null;
   characters?: AnalysisCharacter[];
+  seriesSlug?: string | null;
 }
 
 interface Props {
