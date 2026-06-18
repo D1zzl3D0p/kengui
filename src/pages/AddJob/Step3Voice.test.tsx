@@ -31,6 +31,7 @@ vi.mock('../../api/status', () => ({
 }));
 
 vi.mock('../../api/series', () => ({
+  createEmptySeries: vi.fn(),
   fetchSeries: vi.fn(),
 }));
 
@@ -39,7 +40,7 @@ import { analyzeBook, fetchAnalysisCaches } from '../../api/books';
 import { fetchConfig } from '../../api/config';
 import { fetchTask } from '../../api/tasks';
 import { fetchMultivoiceStatus } from '../../api/status';
-import { fetchSeries } from '../../api/series';
+import { createEmptySeries, fetchSeries } from '../../api/series';
 import { useProviderModels } from '../../hooks/useProviderModels';
 const mockFetchVoices = fetchVoices as ReturnType<typeof vi.fn>;
 const mockSuggestCast = suggestCast as ReturnType<typeof vi.fn>;
@@ -49,6 +50,7 @@ const mockFetchConfig = fetchConfig as ReturnType<typeof vi.fn>;
 const mockFetchTask = fetchTask as ReturnType<typeof vi.fn>;
 const mockFetchMultivoiceStatus = fetchMultivoiceStatus as ReturnType<typeof vi.fn>;
 const mockFetchSeries = fetchSeries as ReturnType<typeof vi.fn>;
+const mockCreateEmptySeries = createEmptySeries as ReturnType<typeof vi.fn>;
 const mockUseProviderModels = useProviderModels as ReturnType<typeof vi.fn>;
 
 const mockVoiceList: VoiceListResponse = {
@@ -114,6 +116,7 @@ describe('Step3Voice', () => {
     });
     mockFetchAnalysisCaches.mockResolvedValue({ book_hash: 'hash123', candidates: [] });
     mockFetchSeries.mockResolvedValue({ series: [], total: 0 });
+    mockCreateEmptySeries.mockResolvedValue({ slug: 'the-expanse', name: 'The Expanse' });
     mockAnalyzeBook.mockResolvedValue({
       task_id: 'analysis-1',
       type: 'full_analysis',
@@ -197,7 +200,7 @@ describe('Step3Voice', () => {
     });
 
     // Select dave
-    const select = screen.getByRole('combobox');
+    const select = screen.getByLabelText(/narrator voice/i);
     await userEvent.selectOptions(select, 'dave');
 
     await userEvent.click(screen.getByRole('button', { name: /next/i }));
@@ -245,20 +248,33 @@ describe('Step3Voice', () => {
     );
   });
 
-  it('uses cache only when the user chooses a discovered cache', async () => {
+  it('auto-selects the most recent cache and uses it when requested', async () => {
     mockFetchVoices.mockResolvedValue(mockVoiceList);
     mockFetchAnalysisCaches.mockResolvedValueOnce({
       book_hash: 'hash123',
       candidates: [
         {
-          cache_id: 'hash-ollama-llama3_2.json',
+          cache_id: 'older-cache.json',
           step: 'attribution',
           provider: 'ollama',
           model: 'llama3.2',
           method: '',
           created_at: '2026-06-18T09:00:00Z',
-          description: 'Full attribution cache · ollama · llama3.2',
-          path: '/cache/hash-ollama-llama3_2.json',
+          description: 'Older attribution cache',
+          path: '/cache/older-cache.json',
+          character_count: 22,
+          chapter_count: 30,
+          quote_count: 2,
+        },
+        {
+          cache_id: 'newer-cache.json',
+          step: 'attribution',
+          provider: 'openrouter',
+          model: 'openai/gpt-4.1-mini',
+          method: 'llm',
+          created_at: '2026-06-18T10:00:00Z',
+          description: 'Newest attribution cache',
+          path: '/cache/newer-cache.json',
           character_count: 44,
           chapter_count: 63,
           quote_count: 4,
@@ -284,10 +300,10 @@ describe('Step3Voice', () => {
         book_hash: 'hash123',
         annotated_chapters_path: '/cache/annotated.json',
         roster_cache_path: '/cache/roster.json',
-        nlp_provider: 'ollama',
-        nlp_model: 'llama3.2',
-        attribution_provider: 'ollama',
-        attribution_model: 'llama3.2',
+        nlp_provider: 'openrouter',
+        nlp_model: 'openai/gpt-4.1-mini',
+        attribution_provider: 'openrouter',
+        attribution_model: 'openai/gpt-4.1-mini',
         cache_status: 'hit',
       },
       error: null,
@@ -301,17 +317,18 @@ describe('Step3Voice', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /multi.voice/i }));
     await waitFor(() => {
-      expect(screen.getByText(/we discovered cache files for this book/i)).toBeInTheDocument();
+      expect(screen.getByText(/reuse an existing analysis/i)).toBeInTheDocument();
       expect(screen.getByText(/44 characters · 63 chapters · 4 quotes/i)).toBeInTheDocument();
     });
-    await userEvent.click(screen.getByRole('button', { name: /use cache if available/i }));
+    expect(screen.getByLabelText(/newest attribution cache/i)).toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: /use selected cache/i }));
 
     expect(mockAnalyzeBook).toHaveBeenCalledWith(
       expect.objectContaining({
-        nlp_provider: 'ollama',
-        nlp_model: 'llama3.2',
-        attribution_provider: 'ollama',
-        attribution_model: 'llama3.2',
+        nlp_provider: 'openrouter',
+        nlp_model: 'openai/gpt-4.1-mini',
+        attribution_provider: 'openrouter',
+        attribution_model: 'openai/gpt-4.1-mini',
         use_cache: true,
       })
     );
@@ -422,6 +439,45 @@ describe('Step3Voice', () => {
     await waitFor(() => {
       expect(screen.getByLabelText(/series \(optional\)/i)).toBeInTheDocument();
       expect(screen.getByRole('option', { name: /harry potter/i })).toBeInTheDocument();
+    });
+  });
+
+  it('shows series selector in single-voice mode and passes seriesSlug metadata', async () => {
+    mockFetchVoices.mockResolvedValue(mockVoiceList);
+    mockFetchSeries.mockResolvedValue({
+      series: [{ slug: 'hp', name: 'Harry Potter' }],
+      total: 1,
+    });
+    const onNext = vi.fn();
+
+    render(<Step3Voice filePath="/books/great.epub" onBack={vi.fn()} onNext={onNext} />);
+
+    await waitFor(() => expect(screen.getByText('Alba (female, en-us)')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText(/series \(optional\)/i)).toBeInTheDocument());
+    await userEvent.selectOptions(screen.getByLabelText(/series \(optional\)/i), 'hp');
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+
+    expect(onNext).toHaveBeenCalledWith(expect.objectContaining({
+      narrationMode: 'single',
+      seriesSlug: 'hp',
+    }));
+  });
+
+  it('creates a new inline series and selects it', async () => {
+    mockFetchVoices.mockResolvedValue(mockVoiceList);
+    mockFetchSeries.mockResolvedValue({ series: [], total: 0 });
+    mockCreateEmptySeries.mockResolvedValue({ slug: 'the-expanse', name: 'The Expanse' });
+
+    render(<Step3Voice filePath="/books/great.epub" onBack={vi.fn()} onNext={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText('Alba (female, en-us)')).toBeInTheDocument());
+    await userEvent.type(screen.getByLabelText(/new series name/i), 'The Expanse');
+    await userEvent.click(screen.getByRole('button', { name: /create series/i }));
+
+    expect(mockCreateEmptySeries).toHaveBeenCalledWith('The Expanse');
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /the expanse/i })).toBeInTheDocument();
+      expect(screen.getByLabelText(/series \(optional\)/i)).toHaveValue('the-expanse');
     });
   });
 

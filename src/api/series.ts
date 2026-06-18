@@ -19,6 +19,10 @@ export interface SeriesListResponse {
   total: number;
 }
 
+export interface CreateEmptySeriesRequest {
+  name: string;
+}
+
 export interface SeriesMatchRequest {
   fast_result: Record<string, unknown>;
 }
@@ -30,6 +34,12 @@ export interface SeriesMatchResponse {
 
 export const fetchSeries = () =>
   apiRequest<SeriesListResponse>('/series');
+
+export const createEmptySeries = (name: string) =>
+  apiRequest<SeriesModel>('/series/empty', {
+    method: 'POST',
+    body: JSON.stringify({ name } satisfies CreateEmptySeriesRequest),
+  });
 
 export const fetchSeriesDetail = (slug: string) =>
   apiRequest<SeriesModel>(`/series/${encodeURIComponent(slug)}`);

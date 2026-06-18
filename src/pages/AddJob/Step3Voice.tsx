@@ -10,7 +10,7 @@ import { fetchConfig } from '../../api/config';
 import type { NarrationMode } from '../../api/queue';
 import { NLP_PROVIDER_OPTIONS } from '../../lib/providerCatalog';
 import { useProviderModels } from '../../hooks/useProviderModels';
-import { fetchSeries, type SeriesModel } from '../../api/series';
+import { createEmptySeries, fetchSeries, type SeriesModel } from '../../api/series';
 
 const DEFAULT_NARRATOR_VOICE = 'alba';
 
@@ -50,6 +50,14 @@ function validateAnalysisResult(result: AnalysisResult): AnalysisCharacter[] {
     throw new Error('Analysis completed without a character roster. Please update kenkui and retry.');
   }
   return result.characters;
+}
+
+function newestCacheId(candidates: AnalysisCacheCandidate[]): string {
+  return [...candidates].sort((a, b) => {
+    const aTime = Date.parse(a.created_at || '');
+    const bTime = Date.parse(b.created_at || '');
+    return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+  })[0]?.cache_id ?? '';
 }
 
 interface Step3Data {
@@ -105,6 +113,9 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [seriesList, setSeriesList] = useState<SeriesModel[]>([]);
   const [selectedSeriesSlug, setSelectedSeriesSlug] = useState<string>('');
+  const [newSeriesName, setNewSeriesName] = useState('');
+  const [seriesCreating, setSeriesCreating] = useState(false);
+  const [seriesError, setSeriesError] = useState<string | null>(null);
   const {
     models: nlpModelOptions,
     loading: nlpModelsLoading,
@@ -155,7 +166,7 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
     fetchAnalysisCaches({ ebook_path: filePath })
       .then((data) => {
         setCacheCandidates(data.candidates);
-        setSelectedCacheId(data.candidates[0]?.cache_id ?? '');
+        setSelectedCacheId(newestCacheId(data.candidates));
       })
       .catch(() => {
         setCacheCandidates([]);
@@ -242,6 +253,26 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
     }
   }
 
+  async function handleCreateSeries() {
+    const name = newSeriesName.trim();
+    if (!name) return;
+    setSeriesCreating(true);
+    setSeriesError(null);
+    try {
+      const created = await createEmptySeries(name);
+      setSeriesList((current) => [
+        created,
+        ...current.filter((series) => series.slug !== created.slug),
+      ]);
+      setSelectedSeriesSlug(created.slug);
+      setNewSeriesName('');
+    } catch (error) {
+      setSeriesError(error instanceof Error ? error.message : 'Failed to create series.');
+    } finally {
+      setSeriesCreating(false);
+    }
+  }
+
   function handleNext() {
     const narratorVoice = selectedVoice || DEFAULT_NARRATOR_VOICE;
     if (narrationMode === 'single') {
@@ -321,6 +352,54 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
         )}
       </div>
 
+      <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
+        <label htmlFor="series-select" className="flex flex-col gap-1 text-sm">
+          <span className="font-medium">Series (optional)</span>
+          <select
+            id="series-select"
+            value={selectedSeriesSlug}
+            onChange={(e) => setSelectedSeriesSlug(e.target.value)}
+            className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
+          >
+            <option value="">None — treat as standalone book</option>
+            {seriesList.map((s) => (
+              <option key={s.slug} value={s.slug}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-muted-foreground">
+            Add series metadata for this book. Multi-voice jobs can also use it for voice continuity.
+          </span>
+        </label>
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <label htmlFor="new-series-name" className="flex flex-col gap-1 text-sm">
+            <span className="font-medium">New series name</span>
+            <input
+              id="new-series-name"
+              value={newSeriesName}
+              onChange={(e) => setNewSeriesName(e.target.value)}
+              className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
+              placeholder="The Expanse"
+            />
+          </label>
+          <Button
+            type="button"
+            variant="outline"
+            className="self-end"
+            onClick={() => void handleCreateSeries()}
+            disabled={seriesCreating || !newSeriesName.trim()}
+          >
+            {seriesCreating ? 'Creating...' : 'Create series'}
+          </Button>
+        </div>
+        {seriesError && (
+          <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {seriesError}
+          </p>
+        )}
+      </div>
+
       {narrationMode === 'multi' && (
         <div className="flex flex-col gap-4 rounded-lg border bg-card p-4 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
           <div className="grid gap-3 md:grid-cols-3">
@@ -397,9 +476,9 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
 
           {cacheCandidates.length > 0 && (
             <div className="rounded-md border bg-background/45 p-3 text-sm">
-              <h3 className="font-medium">We discovered cache files for this book</h3>
+              <h3 className="font-medium">Reuse an existing analysis</h3>
               <p className="mt-1 text-xs text-muted-foreground">
-                Choose one only if you want to reuse cached NLP work. Otherwise run a fresh analysis.
+                The most recent cache is selected automatically. Run a fresh analysis if you want new NLP work.
               </p>
               <div className="mt-3 flex flex-col gap-2">
                 {cacheCandidates.map((candidate) => (
@@ -437,26 +516,6 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
             </p>
           )}
 
-          <label htmlFor="series-select" className="flex flex-col gap-1 text-sm">
-            <span className="font-medium">Series (optional)</span>
-            <select
-              id="series-select"
-              value={selectedSeriesSlug}
-              onChange={(e) => setSelectedSeriesSlug(e.target.value)}
-              className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
-            >
-              <option value="">None — treat as standalone book</option>
-              {seriesList.map((s) => (
-                <option key={s.slug} value={s.slug}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-            <span className="text-xs text-muted-foreground">
-              If this book belongs to a series, select it to inherit voice assignments from previous books.
-            </span>
-          </label>
-
           <div className="flex flex-wrap gap-2">
             <Button
               className="w-fit"
@@ -481,7 +540,7 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
                 (narrationMode === 'multi' && nlpModelsLoading)
               }
             >
-              Use cache if available
+              Use selected cache
             </Button>
           </div>
 
