@@ -310,6 +310,15 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
         </p>
       </div>
 
+      <div className="flex justify-between">
+        <Button variant="outline" onClick={onBack}>
+          Back
+        </Button>
+        <Button disabled={nextDisabled} onClick={handleNext}>
+          Next
+        </Button>
+      </div>
+
       <div className="grid gap-2 sm:grid-cols-2">
         <Button
           variant={narrationMode === 'single' ? 'default' : 'outline'}
@@ -640,15 +649,6 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
           {error}
         </p>
       )}
-
-      <div className="flex justify-between">
-        <Button variant="outline" onClick={onBack}>
-          Back
-        </Button>
-        <Button disabled={nextDisabled} onClick={handleNext}>
-          Next
-        </Button>
-      </div>
     </div>
   );
 }

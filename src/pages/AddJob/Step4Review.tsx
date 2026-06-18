@@ -85,6 +85,16 @@ export default function Step4Review({ state, onBack, onDone }: Props) {
         </p>
       </div>
 
+      <div className="flex justify-between">
+        <Button variant="outline" onClick={onBack} disabled={loading}>
+          Back
+        </Button>
+        <Button aria-label="Submit conversion" onClick={handleSubmit} disabled={loading}>
+          <CheckCircle2 aria-hidden="true" />
+          {loading ? 'Submitting...' : 'Start Conversion'}
+        </Button>
+      </div>
+
       <div className="rounded-lg border bg-card p-4 flex flex-col gap-3 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -168,16 +178,6 @@ export default function Step4Review({ state, onBack, onDone }: Props) {
           {error}
         </p>
       )}
-
-      <div className="flex justify-between">
-        <Button variant="outline" onClick={onBack} disabled={loading}>
-          Back
-        </Button>
-        <Button aria-label="Submit conversion" onClick={handleSubmit} disabled={loading}>
-          <CheckCircle2 aria-hidden="true" />
-          {loading ? 'Submitting...' : 'Start Conversion'}
-        </Button>
-      </div>
     </div>
   );
 }

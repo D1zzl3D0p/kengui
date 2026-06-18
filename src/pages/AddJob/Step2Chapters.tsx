@@ -97,6 +97,18 @@ export default function Step2Chapters({ book, onBack, onNext }: Props) {
         </p>
       </div>
 
+      <div className="flex justify-between">
+        <Button variant="outline" onClick={onBack}>
+          Back
+        </Button>
+        <Button
+          disabled={loading}
+          onClick={() => onNext({ chapterPreset: selectionPreset, chapterSelection: selection })}
+        >
+          Next
+        </Button>
+      </div>
+
       <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
         <div className="flex flex-col gap-2">
           <label htmlFor="preset-select" className="text-sm font-medium">
@@ -158,18 +170,6 @@ export default function Step2Chapters({ book, onBack, onNext }: Props) {
           );
         })}
       </ul>
-
-      <div className="flex justify-between">
-        <Button variant="outline" onClick={onBack}>
-          Back
-        </Button>
-        <Button
-          disabled={loading}
-          onClick={() => onNext({ chapterPreset: selectionPreset, chapterSelection: selection })}
-        >
-          Next
-        </Button>
-      </div>
     </div>
   );
 }

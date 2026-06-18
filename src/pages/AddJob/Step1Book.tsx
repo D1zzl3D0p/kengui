@@ -77,6 +77,15 @@ export default function Step1Book({ onNext }: Props) {
         </Button>
       </div>
 
+      <div className="flex justify-end">
+        <Button
+          disabled={!book}
+          onClick={() => book && filePath && onNext({ filePath, book })}
+        >
+          Next
+        </Button>
+      </div>
+
       {error && (
         <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
@@ -105,15 +114,6 @@ export default function Step1Book({ onNext }: Props) {
           </div>
         </div>
       )}
-
-      <div className="flex justify-end">
-        <Button
-          disabled={!book}
-          onClick={() => book && filePath && onNext({ filePath, book })}
-        >
-          Next
-        </Button>
-      </div>
     </div>
   );
 }
