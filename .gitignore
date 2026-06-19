@@ -12,6 +12,7 @@ dist/
 dist-ssr
 src-tauri/target/
 .worktrees/
+.hermes/
 *.local
 
 # Editor directories and files

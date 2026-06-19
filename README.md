@@ -32,6 +32,12 @@ Run the full local gate before handing off changes:
 rtk npm run check
 ```
 
+## Desktop Distribution
+
+See [`docs/desktop-distribution.md`](docs/desktop-distribution.md) for local
+desktop bundle builds, the GitHub release workflow, signing/notarization
+secrets, and the app-store readiness checklist.
+
 ## Licensing
 
 Kengui is MIT licensed. The commercial boundary is the operated hosted compute

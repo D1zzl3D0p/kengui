@@ -1,4 +1,6 @@
+use std::env;
 use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -56,25 +58,76 @@ fn handle_stdout_line(
 
 #[tauri::command]
 async fn check_server_runtime() -> bool {
-    server_runtime_available()
+    ensure_server_runtime().is_ok()
 }
 
 fn server_runtime_available() -> bool {
-    which::which("kenkui").is_ok()
+    find_server_runtime().is_some()
+}
+
+fn uv_tool_bin_dir() -> Option<PathBuf> {
+    if let Ok(path) = env::var("UV_TOOL_BIN_DIR") {
+        return Some(PathBuf::from(path));
+    }
+
+    let home = env::var_os("HOME").or_else(|| env::var_os("USERPROFILE"))?;
+    Some(PathBuf::from(home).join(".local").join("bin"))
+}
+
+fn uv_tool_kenkui_path() -> Option<PathBuf> {
+    let executable = if cfg!(windows) { "kenkui.exe" } else { "kenkui" };
+    uv_tool_bin_dir().map(|dir| dir.join(executable))
+}
+
+fn find_server_runtime() -> Option<PathBuf> {
+    which::which("kenkui")
+        .ok()
+        .or_else(|| uv_tool_kenkui_path().filter(|path| path.exists()))
+}
+
+fn install_server_runtime() -> Result<PathBuf, String> {
+    let uv_path = which::which("uv").map_err(|_| {
+        "Could not find kenkui or uv on PATH. Install uv from https://docs.astral.sh/uv/ and restart Kengui.".to_string()
+    })?;
+
+    let output = Command::new(uv_path)
+        .args(["tool", "install", "--upgrade", "kenkui"])
+        .output()
+        .map_err(|e| format!("Failed to run uv tool install --upgrade kenkui: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let details = if stderr.is_empty() { stdout } else { stderr };
+        return Err(format!(
+            "uv failed to install kenkui with status {}{}",
+            output.status,
+            if details.is_empty() {
+                String::new()
+            } else {
+                format!(": {details}")
+            }
+        ));
+    }
+
+    find_server_runtime().ok_or_else(|| {
+        "uv installed kenkui, but Kengui could not find the kenkui executable. Add uv's tool bin directory to PATH and restart Kengui.".to_string()
+    })
+}
+
+fn ensure_server_runtime() -> Result<PathBuf, String> {
+    find_server_runtime().map_or_else(install_server_runtime, Ok)
 }
 
 fn server_command() -> Result<Command, String> {
-    if let Ok(path) = which::which("kenkui") {
-        let mut command = Command::new(path);
-        command.arg("serve");
-        #[cfg(unix)]
-        {
-            command.process_group(0);
-        }
-        return Ok(command);
+    let path = ensure_server_runtime()?;
+    let mut command = Command::new(path);
+    command.arg("serve");
+    #[cfg(unix)]
+    {
+        command.process_group(0);
     }
-
-    Err("Could not find kenkui on PATH".to_string())
+    Ok(command)
 }
 
 fn local_port_owner() -> Option<String> {

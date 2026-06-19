@@ -88,7 +88,7 @@ describe('App startup — local mode', () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByText(/kenkui not found/i)).toBeInTheDocument();
+      expect(screen.getByText(/kenkui not available/i)).toBeInTheDocument();
     });
   });
 

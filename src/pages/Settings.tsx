@@ -59,6 +59,8 @@ const EMPTY_CONFIG_FORM: ConfigForm = {
   nlp_discovery_method: '',
 };
 
+const HOSTED_RUNTIME_ENABLED = import.meta.env.VITE_KENGUI_ENABLE_HOSTED === 'true';
+
 function lineMatchesSeverity(line: string, filter: string): boolean {
   if (filter === 'all') return true;
   return line.toLowerCase().includes(filter);
@@ -494,22 +496,24 @@ export default function Settings() {
               </div>
             </label>
 
-            <label className="flex cursor-pointer items-center gap-3 rounded-md border bg-background/45 p-3">
-              <input
-                type="radio"
-                name="serverMode"
-                value="hosted"
-                aria-label="Kengui Cloud"
-                checked={localMode === 'hosted'}
-                onChange={() => setLocalMode('hosted')}
-              />
-              <div>
-                <p className="font-medium text-sm">Kengui Cloud</p>
-                <p className="text-xs text-muted-foreground">
-                  Connect to the hosted compute service for paid store builds.
-                </p>
-              </div>
-            </label>
+            {HOSTED_RUNTIME_ENABLED && (
+              <label className="flex cursor-pointer items-center gap-3 rounded-md border bg-background/45 p-3">
+                <input
+                  type="radio"
+                  name="serverMode"
+                  value="hosted"
+                  aria-label="Kengui Cloud"
+                  checked={localMode === 'hosted'}
+                  onChange={() => setLocalMode('hosted')}
+                />
+                <div>
+                  <p className="font-medium text-sm">Kengui Cloud</p>
+                  <p className="text-xs text-muted-foreground">
+                    Connect to the hosted compute service for paid store builds.
+                  </p>
+                </div>
+              </label>
+            )}
           </div>
 
           {localMode !== 'local' && (

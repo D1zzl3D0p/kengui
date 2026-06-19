@@ -10,6 +10,8 @@
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "desktop:build": "tauri build",
+    "desktop:build:debug": "tauri build --debug",
     "test": "vitest run",
     "test:watch": "vitest",
     "contract:openapi": "PYTHONPATH=../kenkui/src python -m kenkui.server.openapi > contracts/kenkui-openapi.json",

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "kengui",
+  "productName": "Kengui",
   "version": "0.1.0",
-  "identifier": "io.kengui.app",
+  "identifier": "app.kengui.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "kengui",
+        "title": "Kengui",
         "width": 1200,
         "height": 800,
         "minWidth": 320,

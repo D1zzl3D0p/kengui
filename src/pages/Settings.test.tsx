@@ -204,6 +204,11 @@ describe('Settings', () => {
     expect(screen.getByPlaceholderText(/http/i)).toBeInTheDocument();
   });
 
+  it('hides hosted cloud mode in the default desktop GitHub build', () => {
+    renderSettings();
+    expect(screen.queryByLabelText(/kengui cloud/i)).not.toBeInTheDocument();
+  });
+
   it('shows runtime diagnostics and full logs', async () => {
     renderSettings();
 

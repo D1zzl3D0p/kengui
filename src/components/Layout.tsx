@@ -77,7 +77,7 @@ export function Layout({ children }: Props) {
         </nav>
 
         <div className="mt-auto border-t border-sidebar-border p-4 text-xs leading-relaxed text-sidebar-foreground/68">
-          A careful little mimic turns pages into voices — local, external, or hosted.
+          A careful little mimic turns pages into voices — local or external.
         </div>
       </aside>
 
