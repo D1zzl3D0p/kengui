@@ -13,6 +13,7 @@ function createStorage() {
     clear: () => values.clear(),
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
   };
 }
 
@@ -42,6 +43,8 @@ describe('nativeStore', () => {
     await expect(nativeStore.loadSettings()).resolves.toEqual({
       serverMode: 'external',
       serverUrl: 'http://remote:45365',
+      authMode: 'none',
+      lastConnectedAt: null,
     });
   });
 
@@ -57,10 +60,14 @@ describe('nativeStore', () => {
     await nativeStore.saveSettings({
       serverMode: 'hosted',
       serverUrl: 'https://api.kengui.app',
+      authMode: 'supabase',
+      lastConnectedAt: '2026-01-01T00:00:00.000Z',
     });
 
     expect(set).toHaveBeenCalledWith('serverMode', 'hosted');
     expect(set).toHaveBeenCalledWith('serverUrl', 'https://api.kengui.app');
+    expect(set).toHaveBeenCalledWith('authMode', 'supabase');
+    expect(set).toHaveBeenCalledWith('lastConnectedAt', '2026-01-01T00:00:00.000Z');
     expect(save).toHaveBeenCalled();
   });
 
@@ -72,11 +79,15 @@ describe('nativeStore', () => {
     await expect(nativeStore.loadSettings()).resolves.toEqual({
       serverMode: 'external',
       serverUrl: 'http://dev-server:45365',
+      authMode: 'none',
+      lastConnectedAt: null,
     });
 
     await nativeStore.saveSettings({
       serverMode: 'local',
       serverUrl: 'http://localhost:45365',
+      authMode: 'none',
+      lastConnectedAt: null,
     });
 
     expect(localStorage.getItem('serverMode')).toBe('local');

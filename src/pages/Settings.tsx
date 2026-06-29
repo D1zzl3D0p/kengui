@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Check, Copy, KeyRound, RefreshCw, RotateCcw, Save, Server, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { Button } from '../components/ui/button';
@@ -12,7 +13,6 @@ import {
   type LocalRuntimeStatus,
   type RuntimeHealth,
 } from '../runtime/runtime';
-import { formatRequestedLocalChapterThreads, getRequestedLocalChapterThreads } from '../runtime/threadBudget';
 import { fetchConfig, patchConfig, type KenkuiConfig } from '../api/config';
 import { fetchVoices, type VoiceResponse } from '../api/voices';
 import {
@@ -60,6 +60,8 @@ const EMPTY_CONFIG_FORM: ConfigForm = {
 };
 
 const HOSTED_RUNTIME_ENABLED = import.meta.env.VITE_KENGUI_ENABLE_HOSTED === 'true';
+const LOCAL_RUNTIME_ENABLED = import.meta.env.VITE_KENGUI_ENABLE_LOCAL !== 'false';
+const HIGH_LOCAL_WORKER_WARNING_THRESHOLD = 4;
 
 function lineMatchesSeverity(line: string, filter: string): boolean {
   if (filter === 'all') return true;
@@ -140,7 +142,6 @@ export default function Settings() {
   const [selectedCredentialProvider, setSelectedCredentialProvider] = useState<string>(
     CREDENTIAL_PROVIDER_OPTIONS[0].value
   );
-  const requestedChapterThreads = getRequestedLocalChapterThreads();
   const {
     models: configModelOptions,
     loading: configModelsLoading,
@@ -174,6 +175,11 @@ export default function Settings() {
     };
   const localRuntimeManagement =
     serverMode === 'local' && health ? (status?.running ? 'managed' : 'attached') : null;
+  const configuredWorkers = Number(configForm.workers || 0);
+  const showHighWorkerWarning =
+    serverMode === 'local' &&
+    Number.isFinite(configuredWorkers) &&
+    configuredWorkers > HIGH_LOCAL_WORKER_WARNING_THRESHOLD;
   const providerModelsSupported = supportsProviderModels(health);
   const providerCredentialsSupported = supportsProviderCredentials(health);
   const providerModelsUnavailable =
@@ -185,22 +191,41 @@ export default function Settings() {
     setRefreshing(true);
     setDiagnosticError(null);
     try {
-      const [nextHealth, nextStatus, nextLogs] = await Promise.all([
+      const [nextHealth, nextStatus] = await Promise.all([
         runtime.health(),
         runtime.status(),
-        serverMode === 'local' ? runtime.logs() : Promise.resolve([]),
       ]);
+      let nextLogs: string[] = [];
+      if (serverMode === 'local') {
+        try {
+          nextLogs = await runtime.logs();
+        } catch (error) {
+          nextLogs = nextStatus?.log_tail ?? [];
+          setDiagnosticError(
+            error instanceof Error
+              ? `Runtime log command failed: ${error.message}`
+              : 'Runtime log command failed.'
+          );
+        }
+      }
       setHealth(nextHealth);
       setStatus(nextStatus);
-      setLogs(nextLogs);
+      setLogs(nextLogs.length > 0 ? nextLogs : (nextStatus?.log_tail ?? []));
     } catch (error) {
       setHealth(null);
       if (serverMode === 'local') {
         try {
-          const [nextStatus, nextLogs] = await Promise.all([
-            runtime.status(),
-            runtime.logs(),
-          ]);
+          const nextStatus = await runtime.status();
+          let nextLogs = nextStatus?.log_tail ?? [];
+          try {
+            nextLogs = await runtime.logs();
+          } catch (logError) {
+            setDiagnosticError(
+              logError instanceof Error
+                ? `Runtime check failed. Runtime log command failed: ${logError.message}`
+                : 'Runtime check failed. Runtime log command failed.'
+            );
+          }
           setStatus(nextStatus);
           setLogs(nextLogs);
         } catch {
@@ -208,7 +233,7 @@ export default function Settings() {
           setLogs([]);
         }
       }
-      setDiagnosticError(error instanceof Error ? error.message : 'Runtime check failed.');
+      setDiagnosticError((current) => current ?? (error instanceof Error ? error.message : 'Runtime check failed.'));
     } finally {
       setRefreshing(false);
     }
@@ -462,22 +487,24 @@ export default function Settings() {
           </div>
 
           <div className="flex flex-col gap-3">
-            <label className="flex cursor-pointer items-center gap-3 rounded-md border bg-background/45 p-3">
-              <input
-                type="radio"
-                name="serverMode"
-                value="local"
-                aria-label="Local (managed)"
-                checked={localMode === 'local'}
-                onChange={() => setLocalMode('local')}
-              />
-              <div>
-                <p className="font-medium text-sm">Local (managed)</p>
-                <p className="text-xs text-muted-foreground">
-                  kengui starts and manages kenkui automatically.
-                </p>
-              </div>
-            </label>
+            {LOCAL_RUNTIME_ENABLED && (
+              <label className="flex cursor-pointer items-center gap-3 rounded-md border bg-background/45 p-3">
+                <input
+                  type="radio"
+                  name="serverMode"
+                  value="local"
+                  aria-label="Local (managed)"
+                  checked={localMode === 'local'}
+                  onChange={() => setLocalMode('local')}
+                />
+                <div>
+                  <p className="font-medium text-sm">Local (managed)</p>
+                  <p className="text-xs text-muted-foreground">
+                    kengui starts and manages kenkui automatically.
+                  </p>
+                </div>
+              </label>
+            )}
 
             <label className="flex cursor-pointer items-center gap-3 rounded-md border bg-background/45 p-3">
               <input
@@ -540,6 +567,13 @@ export default function Settings() {
             {saved ? 'Saved!' : 'Save settings'}
           </Button>
 
+          <Link
+            to="/connect"
+            className="w-fit text-sm font-medium text-primary underline-offset-4 hover:underline"
+          >
+            Open connection setup
+          </Link>
+
           {localMode !== serverMode && (
             <p className="text-xs text-muted-foreground">
               Changes take effect after restarting kengui.
@@ -595,14 +629,8 @@ export default function Settings() {
                         ? 'Available'
                         : 'Missing'}
                   </dd>
-                  <dt className="text-muted-foreground">Chapter threads</dt>
-                  <dd>
-                    {localRuntimeManagement === 'managed'
-                      ? `Requested ${formatRequestedLocalChapterThreads(requestedChapterThreads)}`
-                      : localRuntimeManagement === 'attached'
-                        ? 'Not adjusted for attached runtimes'
-                        : 'Not requested'}
-                  </dd>
+                  <dt className="text-muted-foreground">Workers</dt>
+                  <dd>{configForm.workers || 'Backend default'}</dd>
                   {status.last_error && (
                     <>
                       <dt className="text-muted-foreground">Last error</dt>
@@ -623,7 +651,7 @@ export default function Settings() {
               <p className="mt-3 text-xs text-muted-foreground">
                 {localRuntimeManagement === 'attached'
                   ? 'This local runtime was started outside kengui. Stop and restart it from its own terminal if you need to change process settings.'
-                  : 'Local runs started by kengui request all available CPU threads, so multiple chapters can run in parallel.'}
+                  : 'Kengui starts one local kenkui runtime. Parallel chapter synthesis is controlled by the backend workers setting.'}
               </p>
             )}
 
@@ -651,9 +679,9 @@ export default function Settings() {
                   <div>
                     <h3 className="font-medium">Local server logs</h3>
                     <p className="text-xs text-muted-foreground">
-                      {localRuntimeManagement === 'attached'
-                        ? 'Logs are only available for local runtimes started by kengui.'
-                        : `${logs.length} retained line${logs.length === 1 ? '' : 's'}`}
+                      {logs.length > 0
+                        ? `${logs.length} retained line${logs.length === 1 ? '' : 's'} from runtime diagnostics`
+                        : 'No server or worker log source is available.'}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -681,18 +709,14 @@ export default function Settings() {
                       variant="outline"
                       size="sm"
                       onClick={handleCopyLogs}
-                      disabled={visibleLogs.length === 0 || localRuntimeManagement === 'attached'}
+                      disabled={visibleLogs.length === 0}
                     >
                       {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
                       {copied ? 'Copied' : 'Copy'}
                     </Button>
                   </div>
                 </div>
-                {localRuntimeManagement === 'attached' ? (
-                  <p className="p-4 text-sm text-muted-foreground">
-                    This process is externally managed. Use the terminal that launched `kenkui serve` for logs and restarts.
-                  </p>
-                ) : visibleLogs.length > 0 ? (
+                {visibleLogs.length > 0 ? (
                   <pre className="max-h-72 overflow-auto p-3 font-mono text-xs leading-5">
                     {visibleLogs.join('\n')}
                   </pre>
@@ -729,6 +753,12 @@ export default function Settings() {
               </Button>
             </div>
           </div>
+
+          {showHighWorkerWarning && (
+            <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Local workers is set to {configuredWorkers}. If synthesis fails with worker or pipe errors, restart the local runtime and lower workers to 4 or fewer before retrying.
+            </p>
+          )}
 
           <div className="grid gap-3 md:grid-cols-2">
             <label className="flex flex-col gap-1 text-sm">

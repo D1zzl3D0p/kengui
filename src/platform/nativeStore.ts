@@ -1,11 +1,13 @@
 import { load } from '@tauri-apps/plugin-store';
 
-import type { ServerMode, StoredSettings } from './types';
+import type { ConnectionAuthMode, ServerMode, StoredSettings } from './types';
 
 const SETTINGS_FILE = 'settings.json';
 const DEFAULT_SETTINGS: StoredSettings = {
   serverMode: 'local',
   serverUrl: 'http://localhost:45365',
+  authMode: 'none',
+  lastConnectedAt: null,
 };
 
 function readLocalStorageSetting<K extends keyof StoredSettings>(
@@ -20,6 +22,12 @@ function writeLocalStorageSettings(settings: StoredSettings): void {
   if (typeof localStorage === 'undefined') return;
   localStorage.setItem('serverMode', settings.serverMode);
   localStorage.setItem('serverUrl', settings.serverUrl);
+  localStorage.setItem('authMode', settings.authMode);
+  if (settings.lastConnectedAt) {
+    localStorage.setItem('lastConnectedAt', settings.lastConnectedAt);
+  } else {
+    localStorage.removeItem('lastConnectedAt');
+  }
 }
 
 export interface NativeSettingsStore {
@@ -37,12 +45,21 @@ export const nativeStore: NativeSettingsStore = {
           DEFAULT_SETTINGS.serverMode,
         serverUrl:
           (await store.get<string>('serverUrl')) ?? DEFAULT_SETTINGS.serverUrl,
+        authMode:
+          (await store.get<ConnectionAuthMode>('authMode')) ??
+          DEFAULT_SETTINGS.authMode,
+        lastConnectedAt:
+          (await store.get<string>('lastConnectedAt')) ??
+          DEFAULT_SETTINGS.lastConnectedAt,
       };
     } catch {
       return {
         serverMode:
           readLocalStorageSetting('serverMode') ?? DEFAULT_SETTINGS.serverMode,
         serverUrl: readLocalStorageSetting('serverUrl') ?? DEFAULT_SETTINGS.serverUrl,
+        authMode: readLocalStorageSetting('authMode') ?? DEFAULT_SETTINGS.authMode,
+        lastConnectedAt:
+          readLocalStorageSetting('lastConnectedAt') ?? DEFAULT_SETTINGS.lastConnectedAt,
       };
     }
   },
@@ -52,6 +69,8 @@ export const nativeStore: NativeSettingsStore = {
       const store = await load(SETTINGS_FILE);
       await store.set('serverMode', settings.serverMode);
       await store.set('serverUrl', settings.serverUrl);
+      await store.set('authMode', settings.authMode);
+      await store.set('lastConnectedAt', settings.lastConnectedAt);
       await store.save();
     } catch {
       writeLocalStorageSettings(settings);

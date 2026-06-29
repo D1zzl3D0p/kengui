@@ -1,5 +1,6 @@
 import { resolveServerBaseUrl } from '../api/serverUrl';
 import { useConnectionStore } from '../store/connection';
+import { getAccessToken, refreshSupabaseSession } from '../auth/supabase';
 import { nativeCommands } from '../platform';
 import type { LocalRuntimeStatus, RuntimeHealth, ServerMode } from '../platform';
 
@@ -24,7 +25,19 @@ export interface RuntimeAdapter {
 }
 
 async function fetchHealth(serverUrl: string, mode: ServerMode): Promise<RuntimeHealth> {
-  const res = await fetch(`${resolveServerBaseUrl(serverUrl, mode)}/health`);
+  const headers = new Headers();
+  if (useConnectionStore.getState().authMode === 'supabase') {
+    const token = await getAccessToken();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+  }
+  let res = await fetch(`${resolveServerBaseUrl(serverUrl, mode)}/health`, { headers });
+  if ((res.status === 401 || res.status === 403) && useConnectionStore.getState().authMode === 'supabase') {
+    const refreshed = await refreshSupabaseSession();
+    if (refreshed) {
+      headers.set('Authorization', `Bearer ${refreshed.accessToken}`);
+      res = await fetch(`${resolveServerBaseUrl(serverUrl, mode)}/health`, { headers });
+    }
+  }
   if (!res.ok) {
     throw new Error(`Server health check failed with ${res.status}`);
   }

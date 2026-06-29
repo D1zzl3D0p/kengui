@@ -5,8 +5,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import Dashboard from './Dashboard';
 import * as queueApi from '../api/queue';
+import { nativeCommands } from '../platform';
 
 vi.mock('../api/queue');
+vi.mock('../platform', () => ({
+  nativeCommands: {
+    openOutputFolder: vi.fn(() => Promise.resolve()),
+  },
+}));
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return { ...actual, useNavigate: () => vi.fn() };
@@ -25,7 +31,10 @@ function renderDashboard() {
 
 const mockJob = {
   id: 'job-1',
-  job: { name: 'Test Book' },
+  job: {
+    name: 'Test Book',
+    chapter_selection: { preset: 'content-only', included: [1, 2, 3], excluded: [0] },
+  },
   status: 'processing' as const,
   progress: 0.4,
   current_chapter: 'Chapter 3',
@@ -37,6 +46,7 @@ const mockJob = {
 };
 
 beforeEach(() => {
+  vi.mocked(nativeCommands.openOutputFolder).mockResolvedValue(undefined);
   vi.mocked(queueApi.fetchQueue).mockResolvedValue({
     items: [mockJob],
     current_item: mockJob,
@@ -52,18 +62,19 @@ describe('Dashboard', () => {
     await waitFor(() => expect(screen.getByText('Test Book')).toBeInTheDocument());
   });
 
-  it('renders parallel background processing copy', async () => {
+  it('renders background processing copy without claiming per-chapter visibility', async () => {
     renderDashboard();
     expect(
-      await screen.findByText(/local runs request all cpu threads/i)
+      await screen.findByText(/local runs use the configured worker count/i)
     ).toBeInTheDocument();
-    expect(await screen.findByText(/active chapters/i)).toBeInTheDocument();
+    expect(await screen.findByText(/active jobs/i)).toBeInTheDocument();
     expect(
-      await screen.findByText(/chapter work runs in the background/i)
+      await screen.findByText(/one status label is shown per running book/i)
     ).toBeInTheDocument();
+    expect(await screen.findByText(/3 selected · 1 excluded/i)).toBeInTheDocument();
   });
 
-  it('describes multiple active chapters as parallel work', async () => {
+  it('describes multiple active jobs without implying active chapter count', async () => {
     vi.mocked(queueApi.fetchQueue).mockResolvedValue({
       items: [
         mockJob,
@@ -82,10 +93,7 @@ describe('Dashboard', () => {
     renderDashboard();
 
     expect(
-      await screen.findByText(/2 chapters are processing in parallel right now/i)
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/processing in parallel right now/i)
+      await screen.findByText(/2 books are processing right now/i)
     ).toBeInTheDocument();
   });
 
@@ -165,6 +173,27 @@ describe('Dashboard', () => {
     expect(queueApi.removeJob).toHaveBeenCalledWith('job-1');
   });
 
+  it('retries failed jobs', async () => {
+    vi.mocked(queueApi.retryJob).mockImplementation(
+      () => new Promise(() => {})
+    );
+    vi.mocked(queueApi.fetchQueue).mockResolvedValue({
+      items: [{ ...mockJob, status: 'failed', error_message: 'render failed' }],
+      current_item: null,
+      pending_count: 0,
+      completed_count: 0,
+      failed_count: 1,
+    });
+    renderDashboard();
+
+    await waitFor(() => screen.getByText('render failed'));
+    await userEvent.click(screen.getByRole('button', { name: /retry/i }));
+
+    expect(queueApi.retryJob).toHaveBeenCalledWith('job-1');
+    expect(screen.getByText('processing')).toBeInTheDocument();
+    expect(screen.queryByText('render failed')).not.toBeInTheDocument();
+  });
+
   it('shows output path for completed jobs', async () => {
     vi.mocked(queueApi.fetchQueue).mockResolvedValue({
       items: [{ ...mockJob, status: 'completed', output_path: '/books/Test Book.m4b' }],
@@ -177,6 +206,21 @@ describe('Dashboard', () => {
     await waitFor(() =>
       expect(screen.getByText(/\/books\/Test Book\.m4b/i)).toBeInTheDocument()
     );
+  });
+
+  it('opens the output folder for completed jobs', async () => {
+    vi.mocked(queueApi.fetchQueue).mockResolvedValue({
+      items: [{ ...mockJob, status: 'completed', output_path: '/books/Test Book.m4b' }],
+      current_item: null,
+      pending_count: 0,
+      completed_count: 1,
+      failed_count: 0,
+    });
+    renderDashboard();
+
+    await userEvent.click(await screen.findByRole('button', { name: /open/i }));
+
+    expect(nativeCommands.openOutputFolder).toHaveBeenCalledWith('/books/Test Book.m4b');
   });
 
   it('shows error message for failed jobs', async () => {
@@ -224,7 +268,7 @@ describe('Dashboard', () => {
     expect(screen.getByRole('button', { name: /starting/i })).toBeDisabled();
     expect(screen.getByText('processing')).toBeInTheDocument();
     expect(
-      screen.getByText(/background chapter: starting background processing/i)
+      screen.getByText(/current status: starting background processing/i)
     ).toBeInTheDocument();
   });
 

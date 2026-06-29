@@ -1,4 +1,5 @@
 export type ServerMode = 'local' | 'external' | 'hosted';
+export type ConnectionAuthMode = 'none' | 'supabase';
 
 export interface RuntimeHealth {
   status: string;
@@ -25,6 +26,8 @@ export type BookFileSelection = string | null;
 export interface StoredSettings {
   serverMode: ServerMode;
   serverUrl: string;
+  authMode: ConnectionAuthMode;
+  lastConnectedAt: string | null;
 }
 
 export type Unlisten = () => void;

@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import App from './App';
 import { nativeCommands, nativeEvents, nativeStore } from './platform';
 import { useConnectionStore } from './store/connection';
-import { updateConfig } from './api/config';
 
 vi.mock('./platform', () => ({
   nativeCommands: {
@@ -17,19 +16,28 @@ vi.mock('./platform', () => ({
     onServerReady: vi.fn(() => Promise.resolve(() => {})),
     onServerError: vi.fn(() => Promise.resolve(() => {})),
   },
+  deepLinks: {
+    onAuthCallback: vi.fn(() => Promise.resolve(() => {})),
+  },
+  externalUrl: {
+    openExternalUrl: vi.fn(() => Promise.resolve()),
+  },
+  secureStore: {
+    loadSession: vi.fn(() => Promise.resolve(null)),
+    saveSession: vi.fn(() => Promise.resolve()),
+    clearSession: vi.fn(() => Promise.resolve()),
+  },
   nativeStore: {
     loadSettings: vi.fn(() =>
       Promise.resolve({
         serverMode: 'local',
         serverUrl: 'http://localhost:45365',
+        authMode: 'none',
+        lastConnectedAt: '2026-01-01T00:00:00.000Z',
       })
     ),
     saveSettings: vi.fn(() => Promise.resolve()),
   },
-}));
-
-vi.mock('./api/config', () => ({
-  updateConfig: vi.fn(() => Promise.resolve({ config: {} })),
 }));
 
 const mockFetch = vi.fn();
@@ -40,6 +48,8 @@ beforeEach(() => {
   useConnectionStore.setState({
     serverMode: 'local',
     serverUrl: 'http://localhost:45365',
+    authMode: 'none',
+    lastConnectedAt: '2026-01-01T00:00:00.000Z',
     connectionStatus: 'checking',
     connectionError: null,
   });
@@ -54,12 +64,12 @@ beforeEach(() => {
   vi.mocked(nativeEvents.onServerReady).mockResolvedValue(() => {});
   vi.mocked(nativeEvents.onServerError).mockReset();
   vi.mocked(nativeEvents.onServerError).mockResolvedValue(() => {});
-  vi.mocked(updateConfig).mockReset();
-  vi.mocked(updateConfig).mockResolvedValue({ config: {} });
   vi.mocked(nativeStore.loadSettings).mockReset();
   vi.mocked(nativeStore.loadSettings).mockResolvedValue({
     serverMode: 'local',
     serverUrl: 'http://localhost:45365',
+    authMode: 'none',
+    lastConnectedAt: '2026-01-01T00:00:00.000Z',
   });
   vi.mocked(nativeStore.saveSettings).mockReset();
   vi.mocked(nativeStore.saveSettings).mockResolvedValue(undefined);
@@ -82,13 +92,13 @@ beforeEach(() => {
 });
 
 describe('App startup — local mode', () => {
-  it('navigates to installing when kenkui not found', async () => {
+  it('navigates to connect when kenkui is not found', async () => {
     vi.mocked(nativeCommands.checkServerRuntime).mockResolvedValue(false);
 
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByText(/kenkui not available/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /connect to kenkui/i })).toBeInTheDocument();
     });
   });
 
@@ -143,8 +153,11 @@ describe('App startup — local mode', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /queue/i })).toBeInTheDocument();
     });
-    expect(mockFetch).toHaveBeenCalledWith('http://localhost:45365/health');
-    expect(updateConfig).toHaveBeenCalledWith({ chapter_threads: 8 });
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:45365/health',
+      expect.objectContaining({ headers: expect.any(Headers) })
+    );
+    expect(nativeCommands.spawnServer).toHaveBeenCalledTimes(1);
   });
 
   it('does not replace the dashboard with the connecting screen during a startup recheck', async () => {
@@ -232,7 +245,7 @@ describe('App startup — local mode', () => {
                     'provider-credentials',
                   ],
                 }
-              : {}
+              : { items: [], current_item: null, pending_count: 0, completed_count: 0, failed_count: 0 }
           ),
       })
     );
@@ -278,7 +291,6 @@ describe('App startup — local mode', () => {
     });
 
     expect(nativeCommands.spawnServer).not.toHaveBeenCalled();
-    expect(updateConfig).not.toHaveBeenCalled();
   });
 
   it('attaches to an older local runtime without provider model discovery', async () => {
@@ -294,7 +306,7 @@ describe('App startup — local mode', () => {
                   status: 'healthy',
                   capabilities: ['local-queue', 'single-voice', 'multi-voice', 'voices', 'book-parse'],
                 }
-              : {}
+              : { items: [], current_item: null, pending_count: 0, completed_count: 0, failed_count: 0 }
           ),
       })
     );

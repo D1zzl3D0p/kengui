@@ -20,23 +20,34 @@ describe('nativeCommands', () => {
     await nativeCommands.killServer();
     await nativeCommands.serverStatus();
     await nativeCommands.serverLogs();
+    await nativeCommands.openOutputFolder('/books/Test Book.m4b');
 
     expect(invoke).toHaveBeenCalledWith('check_server_runtime');
     expect(invoke).toHaveBeenCalledWith('spawn_server');
     expect(invoke).toHaveBeenCalledWith('kill_server');
     expect(invoke).toHaveBeenCalledWith('server_status');
     expect(invoke).toHaveBeenCalledWith('server_logs');
+    expect(invoke).toHaveBeenCalledWith('open_output_folder', {
+      path: '/books/Test Book.m4b',
+    });
   });
 
-  it('uses safe fallbacks when Tauri commands are unavailable', async () => {
+  it('uses safe fallbacks when Tauri commands are unavailable in browser tests', async () => {
     vi.mocked(invoke).mockRejectedValue(new Error('unavailable'));
 
     await expect(nativeCommands.checkServerRuntime()).resolves.toBe(false);
     await expect(nativeCommands.spawnServer()).resolves.toBeUndefined();
+    await expect(nativeCommands.openOutputFolder('/books/Test Book.m4b')).resolves.toBeUndefined();
     await expect(nativeCommands.serverLogs()).resolves.toEqual([]);
     await expect(nativeCommands.serverStatus()).resolves.toMatchObject({
       available: false,
       running: false,
     });
+  });
+
+  it('surfaces native command failures in desktop mode', async () => {
+    vi.mocked(invoke).mockRejectedValue(new Error('spawn failed'));
+
+    await expect(nativeCommands.spawnServer()).rejects.toThrow('spawn failed');
   });
 });

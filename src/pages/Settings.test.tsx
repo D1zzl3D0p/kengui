@@ -217,9 +217,10 @@ describe('Settings', () => {
     expect(screen.getByText('Running (123)')).toBeInTheDocument();
     expect(screen.getByText(/ERROR: failed callback/)).toBeInTheDocument();
     expect(
-      screen.getByText(/local runs started by kengui request all available cpu threads/i)
+      screen.getByText(/kengui starts one local kenkui runtime/i)
     ).toBeInTheDocument();
-    expect(screen.getByText(/Requested 8 threads/i)).toBeInTheDocument();
+    expect(screen.getAllByText('Workers').length).toBeGreaterThan(0);
+    expect(screen.getByText('4')).toBeInTheDocument();
     expect(runtime.logs).toHaveBeenCalled();
   });
 
@@ -242,6 +243,34 @@ describe('Settings', () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
       ['ERROR: failed callback', 'WARNING: slow provider', 'INFO: server started'].join('\n')
     );
+  });
+
+  it('copies diagnostics logs for attached local runtimes', async () => {
+    runtime.status.mockResolvedValue({
+      available: true,
+      running: false,
+      pid: null,
+      last_error: null,
+      port_owner: 'kenkui pid 999 is listening on port 45365',
+      log_tail: ['INFO: file backed log'],
+    });
+    runtime.logs.mockResolvedValue(['INFO: file backed log']);
+
+    renderSettings();
+    await screen.findByText(/Attached to existing local runtime/);
+
+    await userEvent.click(screen.getByRole('button', { name: /copy/i }));
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('INFO: file backed log');
+  });
+
+  it('falls back to status log tail when the native log command fails', async () => {
+    runtime.logs.mockRejectedValue(new Error('server_logs failed'));
+
+    renderSettings();
+
+    expect(await screen.findByText(/INFO: fallback status log/)).toBeInTheDocument();
+    expect(screen.getByText(/Runtime log command failed: server_logs failed/)).toBeInTheDocument();
   });
 
   it('restarts the local server and refreshes diagnostics', async () => {

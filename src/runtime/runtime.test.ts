@@ -65,7 +65,10 @@ describe('createRuntimeAdapter', () => {
 
     await expect(runtime.health()).resolves.toEqual({ status: 'healthy' });
 
-    expect(mockFetch).toHaveBeenCalledWith('http://server.local:45365/health');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://server.local:45365/health',
+      expect.objectContaining({ headers: expect.any(Headers) })
+    );
     expect(nativeCommands.spawnServer).not.toHaveBeenCalled();
   });
 

@@ -2,12 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useConnectionStore, loadPersistedSettings } from './store/connection';
-import { createRuntimeAdapter, RuntimeCompatibilityError, waitForRuntimeHealth } from './runtime/runtime';
-import { getRequestedLocalChapterThreads } from './runtime/threadBudget';
-import { updateConfig } from './api/config';
+import { createRuntimeAdapter, waitForRuntimeHealth } from './runtime/runtime';
+import { connectCurrentRuntime } from './runtime/connectRuntime';
 import { nativeEvents } from './platform';
 import Installing from './pages/Installing';
-import Connecting from './pages/Connecting';
+import Connect from './pages/Connecting';
 import Dashboard from './pages/Dashboard';
 import Settings from './pages/Settings';
 import Voices from './pages/Voices';
@@ -16,6 +15,7 @@ import AddJob from './pages/AddJob';
 
 const queryClient = new QueryClient();
 const APP_ROUTES = ['/dashboard', '/add', '/settings', '/voices', '/audiobooks'];
+const LOCAL_RUNTIME_ENABLED = import.meta.env.VITE_KENGUI_ENABLE_LOCAL !== 'false';
 
 function isAppRoute(pathname: string): boolean {
   return APP_ROUTES.some((route) =>
@@ -24,7 +24,7 @@ function isAppRoute(pathname: string): boolean {
 }
 
 function AppRouter() {
-  const { serverMode, serverUrl, setConnectionStatus, setConnectionError } = useConnectionStore();
+  const { serverMode, serverUrl, lastConnectedAt, setConnectionStatus, setConnectionError, markConnected } = useConnectionStore();
   const navigate = useNavigate();
   const [initialized, setInitialized] = useState(false);
   const connectionAttemptRef = useRef(0);
@@ -35,16 +35,21 @@ function AppRouter() {
 
   useEffect(() => {
     if (!initialized) return;
+    if (!lastConnectedAt || (serverMode === 'local' && !LOCAL_RUNTIME_ENABLED)) {
+      if (!isAppRoute(window.location.pathname)) {
+        navigate('/connect', { replace: true });
+      }
+      return;
+    }
 
     let cancelled = false;
     const attemptId = connectionAttemptRef.current + 1;
     connectionAttemptRef.current = attemptId;
-    const runtime = createRuntimeAdapter(serverMode, serverUrl);
     const isCurrentAttempt = () =>
       !cancelled && connectionAttemptRef.current === attemptId;
-    const navigateToConnecting = () => {
+    const navigateToConnect = () => {
       if (!isAppRoute(window.location.pathname)) {
-        navigate('/connecting', { replace: true });
+        navigate('/connect', { replace: true });
       }
     };
     const navigateAfterConnected = () => {
@@ -53,85 +58,27 @@ function AppRouter() {
       }
     };
 
-    if (serverMode === 'local') {
-      runtime.checkAvailable().then((found) => {
+    navigateToConnect();
+    connectCurrentRuntime()
+      .then(() => {
         if (!isCurrentAttempt()) return;
-        if (!found) {
-          setConnectionStatus('not_found');
-          navigate('/installing', { replace: true });
-          return;
-        }
-        setConnectionStatus('checking');
         setConnectionError(null);
-        navigateToConnecting();
-        runtime
-          .health()
-          .then(() => {
-            if (!isCurrentAttempt()) return;
-            setConnectionError(null);
-            setConnectionStatus('connected');
-            navigateAfterConnected();
-          })
-          .catch((healthError) => {
-            if (!isCurrentAttempt()) return;
-            if (healthError instanceof RuntimeCompatibilityError) {
-              setConnectionError(healthError.message);
-              setConnectionStatus('error');
-              navigateToConnecting();
-              return;
-            }
-
-            runtime
-              .start()
-              .then(() => waitForRuntimeHealth(runtime))
-              .then(async () => {
-                if (!isCurrentAttempt()) return;
-                const requestedThreads = getRequestedLocalChapterThreads();
-                try {
-                  await updateConfig({ chapter_threads: requestedThreads });
-                } catch (error) {
-                  console.warn('Failed to submit local chapter thread config.', error);
-                }
-                if (!isCurrentAttempt()) return;
-                setConnectionError(null);
-                setConnectionStatus('connected');
-                navigateAfterConnected();
-              })
-              .catch((startError) => {
-                if (!isCurrentAttempt()) return;
-                setConnectionError(
-                  startError instanceof Error
-                    ? startError.message
-                    : 'Could not reach kenkui. Check that it is running and try again.'
-                );
-                setConnectionStatus('error');
-                navigateToConnecting();
-              });
-          });
+        navigateAfterConnected();
+      })
+      .catch((error) => {
+        if (!isCurrentAttempt()) return;
+        setConnectionError(
+          error instanceof Error
+            ? error.message
+            : 'Could not reach kenkui. Check that it is running and try again.'
+        );
+        setConnectionStatus(
+          useConnectionStore.getState().connectionStatus === 'not_found'
+            ? 'not_found'
+            : 'error'
+        );
+        navigateToConnect();
       });
-    } else {
-      setConnectionStatus('checking');
-      setConnectionError(null);
-      navigateToConnecting();
-      runtime
-        .health()
-        .then(() => {
-          if (!isCurrentAttempt()) return;
-          setConnectionError(null);
-          setConnectionStatus('connected');
-          navigateAfterConnected();
-        })
-        .catch((error) => {
-          if (!isCurrentAttempt()) return;
-          setConnectionError(
-            error instanceof Error
-              ? error.message
-              : 'Could not reach kenkui. Check that it is running and try again.'
-          );
-          setConnectionStatus('error');
-          navigateToConnecting();
-        });
-    }
     return () => {
       cancelled = true;
     };
@@ -147,6 +94,7 @@ function AppRouter() {
         .then(() => {
           setConnectionError(null);
           setConnectionStatus('connected');
+          markConnected();
           if (!isAppRoute(window.location.pathname)) {
             navigate('/dashboard');
           }
@@ -168,18 +116,19 @@ function AppRouter() {
       ready.then((fn) => fn());
       error.then((fn) => fn());
     };
-  }, [navigate, setConnectionError, setConnectionStatus]);
+  }, [navigate, markConnected, setConnectionError, setConnectionStatus]);
 
   return (
     <Routes>
       <Route path="/installing" element={<Installing />} />
-      <Route path="/connecting" element={<Connecting />} />
+      <Route path="/connect" element={<Connect />} />
+      <Route path="/connecting" element={<Connect />} />
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/audiobooks" element={<Audiobooks />} />
       <Route path="/voices" element={<Voices />} />
       <Route path="/add/*" element={<AddJob />} />
       <Route path="/settings" element={<Settings />} />
-      <Route path="*" element={<Connecting />} />
+      <Route path="*" element={<Connect />} />
     </Routes>
   );
 }

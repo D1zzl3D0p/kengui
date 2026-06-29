@@ -1,6 +1,7 @@
 use std::env;
-use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -12,9 +13,12 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use std::os::unix::process::CommandExt;
 
 const LOG_TAIL_LIMIT: usize = 200;
+const LOG_FILE_READ_LIMIT: u64 = 256 * 1024;
 const LOCAL_SERVER_PORT: u16 = 45365;
 const SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(5);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const AUTH_SERVICE: &str = "app.kengui.desktop.auth";
+const AUTH_ACCOUNT: &str = "supabase-session";
 
 #[derive(Default)]
 pub struct ServerProcess {
@@ -31,6 +35,16 @@ struct ServerStatus {
     last_error: Option<String>,
     port_owner: Option<String>,
     log_tail: Vec<String>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthSession {
+    access_token: String,
+    refresh_token: String,
+    expires_at: i64,
+    email: Option<String>,
+    provider: Option<String>,
 }
 
 fn push_log(logs: &Arc<Mutex<Vec<String>>>, message: String) {
@@ -123,11 +137,90 @@ fn server_command() -> Result<Command, String> {
     let path = ensure_server_runtime()?;
     let mut command = Command::new(path);
     command.arg("serve");
+    command.env("KENKUI_LOG_FILE", "1");
+    command.env("PYTHONUNBUFFERED", "1");
     #[cfg(unix)]
     {
         command.process_group(0);
     }
     Ok(command)
+}
+
+fn home_dir() -> Option<PathBuf> {
+    env::var_os("HOME")
+        .or_else(|| env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+}
+
+fn kenkui_log_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Ok(xdg_state_home) = env::var("XDG_STATE_HOME") {
+        dirs.push(PathBuf::from(xdg_state_home).join("kenkui"));
+    }
+    if let Some(home) = home_dir() {
+        dirs.push(home.join(".local").join("state").join("kenkui"));
+        dirs.push(home.join(".config").join("kenkui"));
+    }
+    dirs
+}
+
+fn log_file_candidates() -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for dir in kenkui_log_dirs() {
+        files.push(dir.join("kenkui-server.log"));
+        files.push(dir.join("kenkui-workers.log"));
+    }
+    files
+}
+
+fn tail_file(path: &Path, max_bytes: u64) -> Result<Vec<String>, String> {
+    let mut file = File::open(path).map_err(|e| format!("Failed to open {}: {e}", path.display()))?;
+    let len = file
+        .metadata()
+        .map_err(|e| format!("Failed to inspect {}: {e}", path.display()))?
+        .len();
+    let start = len.saturating_sub(max_bytes);
+    file.seek(SeekFrom::Start(start))
+        .map_err(|e| format!("Failed to seek {}: {e}", path.display()))?;
+    let mut text = String::new();
+    file.read_to_string(&mut text)
+        .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+    if start > 0 {
+        if let Some(offset) = text.find('\n') {
+            text = text[offset + 1..].to_string();
+        }
+    }
+    Ok(text.lines().map(|line| line.to_string()).collect())
+}
+
+fn file_log_tail() -> Vec<String> {
+    let mut lines = Vec::new();
+    for path in log_file_candidates() {
+        if !path.exists() {
+            continue;
+        }
+        if let Ok(mut tail) = tail_file(&path, LOG_FILE_READ_LIMIT) {
+            if !tail.is_empty() {
+                lines.push(format!("== {} ==", path.display()));
+                lines.append(&mut tail);
+            }
+        }
+    }
+    let overflow = lines.len().saturating_sub(LOG_TAIL_LIMIT);
+    if overflow > 0 {
+        lines.drain(0..overflow);
+    }
+    lines
+}
+
+fn combined_log_tail(logs: &Arc<Mutex<Vec<String>>>) -> Vec<String> {
+    let mut lines = logs.lock().unwrap().clone();
+    lines.extend(file_log_tail());
+    let overflow = lines.len().saturating_sub(LOG_TAIL_LIMIT);
+    if overflow > 0 {
+        lines.drain(0..overflow);
+    }
+    lines
 }
 
 fn local_port_owner() -> Option<String> {
@@ -151,6 +244,56 @@ fn local_port_owner() -> Option<String> {
         let pid = columns[1];
         Some(format!("{command} pid {pid} is listening on port {LOCAL_SERVER_PORT}"))
     })
+}
+
+fn output_folder_for_path(path: &Path) -> Result<PathBuf, String> {
+    let folder = if path.is_dir() {
+        path.to_path_buf()
+    } else {
+        path.parent()
+            .ok_or_else(|| format!("Could not determine output folder for {}", path.display()))?
+            .to_path_buf()
+    };
+
+    if folder.exists() {
+        Ok(folder)
+    } else {
+        Err(format!("Output folder does not exist: {}", folder.display()))
+    }
+}
+
+fn open_folder(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("/usr/bin/open");
+        command.arg(path);
+        command
+    };
+
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("explorer");
+        command.arg(path);
+        command
+    };
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let mut command = {
+        let mut command = Command::new("xdg-open");
+        command.arg(path);
+        command
+    };
+
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Failed to open {}: {e}", path.display()))
+}
+
+#[tauri::command]
+async fn open_output_folder(path: String) -> Result<(), String> {
+    let folder = output_folder_for_path(Path::new(&path))?;
+    open_folder(&folder)
 }
 
 fn startup_error_with_port_owner(message: String) -> String {
@@ -234,19 +377,17 @@ fn shutdown_server_process(state: &ServerProcess) -> Result<(), String> {
 
 #[tauri::command]
 async fn spawn_server(app: AppHandle, state: State<'_, ServerProcess>) -> Result<(), String> {
-    {
-        let mut lock = state.child.lock().unwrap();
-        if let Some(child) = lock.as_mut() {
-            match child.try_wait() {
-                Ok(None) => return Ok(()),
-                Ok(Some(_)) => {
-                    let _ = lock.take();
-                }
-                Err(error) => {
-                    let message = format!("Failed to inspect kenkui process: {error}");
-                    *state.last_error.lock().unwrap() = Some(message.clone());
-                    return Err(message);
-                }
+    let mut lock = state.child.lock().unwrap();
+    if let Some(child) = lock.as_mut() {
+        match child.try_wait() {
+            Ok(None) => return Ok(()),
+            Ok(Some(_)) => {
+                let _ = lock.take();
+            }
+            Err(error) => {
+                let message = format!("Failed to inspect kenkui process: {error}");
+                *state.last_error.lock().unwrap() = Some(message.clone());
+                return Err(message);
             }
         }
     }
@@ -311,7 +452,7 @@ async fn spawn_server(app: AppHandle, state: State<'_, ServerProcess>) -> Result
         }
     });
 
-    *state.child.lock().unwrap() = Some(child);
+    *lock = Some(child);
     *state.last_error.lock().unwrap() = None;
     Ok(())
 }
@@ -323,7 +464,7 @@ async fn kill_server(state: State<'_, ServerProcess>) -> Result<(), String> {
 
 #[tauri::command]
 async fn server_logs(state: State<'_, ServerProcess>) -> Result<Vec<String>, String> {
-    Ok(state.logs.lock().unwrap().clone())
+    Ok(combined_log_tail(&state.logs))
 }
 
 #[tauri::command]
@@ -356,8 +497,112 @@ async fn server_status(state: State<'_, ServerProcess>) -> Result<ServerStatus, 
         pid,
         last_error: state.last_error.lock().unwrap().clone(),
         port_owner: local_port_owner(),
-        log_tail: state.logs.lock().unwrap().clone(),
+        log_tail: combined_log_tail(&state.logs),
     })
+}
+
+#[cfg(target_os = "macos")]
+fn security_output(args: &[&str]) -> Result<std::process::Output, String> {
+    Command::new("/usr/bin/security")
+        .args(args)
+        .output()
+        .map_err(|e| format!("Failed to access macOS Keychain: {e}"))
+}
+
+#[cfg(target_os = "macos")]
+fn write_auth_session(session_json: &str) -> Result<(), String> {
+    let _ = security_output(&[
+        "delete-generic-password",
+        "-s",
+        AUTH_SERVICE,
+        "-a",
+        AUTH_ACCOUNT,
+    ]);
+    let output = security_output(&[
+        "add-generic-password",
+        "-s",
+        AUTH_SERVICE,
+        "-a",
+        AUTH_ACCOUNT,
+        "-w",
+        session_json,
+        "-U",
+    ])?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn read_auth_session() -> Result<Option<String>, String> {
+    let output = security_output(&[
+        "find-generic-password",
+        "-s",
+        AUTH_SERVICE,
+        "-a",
+        AUTH_ACCOUNT,
+        "-w",
+    ])?;
+    if output.status.success() {
+        Ok(Some(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+    } else {
+        Ok(None)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn delete_auth_session() -> Result<(), String> {
+    let output = security_output(&[
+        "delete-generic-password",
+        "-s",
+        AUTH_SERVICE,
+        "-a",
+        AUTH_ACCOUNT,
+    ])?;
+    if output.status.success() || String::from_utf8_lossy(&output.stderr).contains("could not be found") {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn write_auth_session(_session_json: &str) -> Result<(), String> {
+    Err("Secure auth storage is not implemented on this platform yet.".to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn read_auth_session() -> Result<Option<String>, String> {
+    Ok(None)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn delete_auth_session() -> Result<(), String> {
+    Ok(())
+}
+
+#[tauri::command]
+async fn save_auth_session(session: AuthSession) -> Result<(), String> {
+    let session_json = serde_json::to_string(&session)
+        .map_err(|e| format!("Failed to serialize auth session: {e}"))?;
+    write_auth_session(&session_json)
+}
+
+#[tauri::command]
+async fn load_auth_session() -> Result<Option<AuthSession>, String> {
+    let Some(session_json) = read_auth_session()? else {
+        return Ok(None);
+    };
+    serde_json::from_str(&session_json)
+        .map(Some)
+        .map_err(|e| format!("Failed to parse stored auth session: {e}"))
+}
+
+#[tauri::command]
+async fn clear_auth_session() -> Result<(), String> {
+    delete_auth_session()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -371,7 +616,11 @@ pub fn run() {
             spawn_server,
             kill_server,
             server_logs,
-            server_status
+            server_status,
+            open_output_folder,
+            save_auth_session,
+            load_auth_session,
+            clear_auth_session
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
@@ -443,5 +692,35 @@ mod tests {
         );
         assert_eq!(*ready_count.lock().unwrap(), 1);
         assert!(ready_emitted);
+    }
+
+    #[test]
+    fn tail_file_reads_bounded_complete_lines() {
+        let path = std::env::temp_dir().join(format!(
+            "kengui-log-tail-{}.log",
+            std::process::id()
+        ));
+        std::fs::write(&path, "first\nsecond\nthird\nfourth\n").unwrap();
+
+        let lines = tail_file(&path, 14).unwrap();
+
+        assert_eq!(lines, vec!["third".to_string(), "fourth".to_string()]);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn output_folder_for_path_uses_parent_for_files() {
+        let dir = std::env::temp_dir().join(format!(
+            "kengui-output-folder-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("book.m4b");
+        std::fs::write(&file, "").unwrap();
+
+        assert_eq!(output_folder_for_path(&file).unwrap(), dir);
+
+        let _ = std::fs::remove_file(file);
+        let _ = std::fs::remove_dir(dir);
     }
 }

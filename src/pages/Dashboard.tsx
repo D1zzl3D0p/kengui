@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
-import { BookOpen, CirclePause, CirclePlay, ListMusic, X } from 'lucide-react';
+import { BookOpen, CirclePause, CirclePlay, FolderOpen, ListMusic, RotateCcw, X } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { StatusBadge } from '../components/StatusBadge';
 import { ProgressBar } from '../components/ProgressBar';
@@ -10,11 +10,13 @@ import {
   fetchQueue,
   pauseJob,
   resumeJob,
+  retryJob,
   cancelJob,
   removeJob,
   startQueue,
 } from '../api/queue';
 import type { JobResponse, QueueResponse } from '../api/queue';
+import { nativeCommands } from '../platform';
 
 function formatEta(seconds: number): string {
   if (seconds <= 0) return '—';
@@ -48,6 +50,27 @@ function summarizeQueue(items: JobResponse[]) {
     completed_count: items.filter((job) => job.status === 'completed').length,
     failed_count: items.filter((job) => job.status === 'failed').length,
   };
+}
+
+function selectedChapterSummary(job: JobResponse): string | null {
+  const selection = (job.job as {
+    chapter_selection?: {
+      included?: unknown;
+      excluded?: unknown;
+      preset?: unknown;
+    };
+  }).chapter_selection;
+  if (!selection) return null;
+
+  const included = Array.isArray(selection.included) ? selection.included.length : 0;
+  const excluded = Array.isArray(selection.excluded) ? selection.excluded.length : 0;
+  const preset = typeof selection.preset === 'string' ? selection.preset : 'custom';
+
+  if (included === 0 && excluded === 0) {
+    return `${preset} chapter preset`;
+  }
+
+  return `${included} selected · ${excluded} excluded`;
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -132,6 +155,38 @@ function JobRow({ job }: { job: JobResponse }) {
     onSettled: invalidate,
   });
 
+  const retry = useMutation({
+    mutationFn: () => retryJob(job.id),
+    onMutate: async () => {
+      setActionError(null);
+      await qc.cancelQueries({ queryKey: ['queue'] });
+      const previous = qc.getQueryData<QueueResponse>(['queue']);
+      updateOptimistically((item) => {
+        if (!item || item.status !== 'failed') return item;
+        return {
+          ...item,
+          status: 'processing',
+          progress: 0,
+          current_chapter: 'Retrying failed job...',
+          eta_seconds: 0,
+          error_message: '',
+          output_path: '',
+          completed_at: 0,
+          provider_status: 'retrying',
+          started_at: item.started_at || Date.now() / 1000,
+        };
+      });
+      return { previous };
+    },
+    onError: (error, _variables, context) => {
+      if (context?.previous) {
+        qc.setQueryData(['queue'], context.previous);
+      }
+      setActionError(errorMessage(error, 'Failed to retry job.'));
+    },
+    onSettled: invalidate,
+  });
+
   const remove = useMutation({
     mutationFn: () => removeJob(job.id),
     onMutate: async () => {
@@ -186,8 +241,19 @@ function JobRow({ job }: { job: JobResponse }) {
     onSettled: invalidate,
   });
 
+  const openOutput = useMutation({
+    mutationFn: () => nativeCommands.openOutputFolder(job.output_path),
+    onMutate: () => {
+      setActionError(null);
+    },
+    onError: (error) => {
+      setActionError(errorMessage(error, 'Failed to open output folder.'));
+    },
+  });
+
   const name = (job.job as { name?: string }).name ?? job.id;
   const progressValue = job.progress > 1 ? job.progress / 100 : job.progress;
+  const chapterSummary = selectedChapterSummary(job);
   const canCancel =
     job.status === 'pending' || job.status === 'processing' || job.status === 'paused';
   const runningSeconds =
@@ -211,6 +277,11 @@ function JobRow({ job }: { job: JobResponse }) {
             <span className="mt-1 block text-xs text-muted-foreground">
               Conversion job
             </span>
+            {chapterSummary && (
+              <span className="mt-1 block text-xs text-muted-foreground">
+                {chapterSummary}
+              </span>
+            )}
           </div>
         </div>
         <StatusBadge status={job.status} />
@@ -220,7 +291,7 @@ function JobRow({ job }: { job: JobResponse }) {
         <>
           <ProgressBar value={progressValue} />
           <div className="flex flex-wrap justify-between gap-3 text-xs text-muted-foreground">
-            <span className="truncate">Background chapter: {job.current_chapter}</span>
+            <span className="truncate">Current status: {job.current_chapter}</span>
             <span>ETA: {formatEta(job.eta_seconds)}</span>
           </div>
         </>
@@ -284,6 +355,23 @@ function JobRow({ job }: { job: JobResponse }) {
             {resume.isPending ? 'Resuming...' : 'Resume'}
           </Button>
         )}
+        {job.status === 'failed' && (
+          <Button size="sm" variant="outline" onClick={() => retry.mutate()} disabled={retry.isPending}>
+            <RotateCcw aria-hidden="true" />
+            {retry.isPending ? 'Retrying...' : 'Retry'}
+          </Button>
+        )}
+        {job.status === 'completed' && job.output_path && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => openOutput.mutate()}
+            disabled={openOutput.isPending}
+          >
+            <FolderOpen aria-hidden="true" />
+            {openOutput.isPending ? 'Opening...' : 'Open'}
+          </Button>
+        )}
         {canCancel && (
           <Button size="sm" variant="destructive" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
             <X aria-hidden="true" />
@@ -320,7 +408,7 @@ export default function Dashboard() {
             Welcome to the Kenku scriptorium. Track books as they move from page to voice.
           </p>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Local runs request all CPU threads, so several chapters can process in parallel.
+            Local runs use the configured worker count. The queue API reports one current status label per book.
           </p>
         </div>
         <Button onClick={() => navigate('/add')}>
@@ -336,12 +424,12 @@ export default function Dashboard() {
             <span className="font-medium">{data.pending_count}</span>
           </div>
           <div className="rounded-md border bg-card px-3 py-2">
-            <span className="block text-xs text-muted-foreground">Active chapters</span>
+            <span className="block text-xs text-muted-foreground">Active jobs</span>
             <span className="font-medium">{processingCount}</span>
             <span className="mt-1 block text-[11px] text-muted-foreground">
               {processingCount > 1
-                ? `${processingCount} chapters are processing in parallel right now`
-                : 'Chapter work runs in the background'}
+                ? `${processingCount} books are processing right now`
+                : 'One status label is shown per running book'}
             </span>
           </div>
           <div className="rounded-md border bg-card px-3 py-2">

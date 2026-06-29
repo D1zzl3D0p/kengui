@@ -8,6 +8,8 @@ vi.mock('../platform', () => ({
       Promise.resolve({
         serverMode: 'local',
         serverUrl: 'http://localhost:45365',
+        authMode: 'none',
+        lastConnectedAt: null,
       })
     ),
     saveSettings: vi.fn(() => Promise.resolve()),
@@ -18,6 +20,8 @@ beforeEach(() => {
   useConnectionStore.setState({
     serverMode: 'local',
     serverUrl: 'http://localhost:45365',
+    authMode: 'none',
+    lastConnectedAt: null,
     connectionStatus: 'checking',
     connectionError: null,
   });
@@ -25,6 +29,8 @@ beforeEach(() => {
   vi.mocked(nativeStore.loadSettings).mockResolvedValue({
     serverMode: 'local',
     serverUrl: 'http://localhost:45365',
+    authMode: 'none',
+    lastConnectedAt: null,
   });
   vi.mocked(nativeStore.saveSettings).mockReset();
   vi.mocked(nativeStore.saveSettings).mockResolvedValue(undefined);
@@ -55,6 +61,8 @@ describe('useConnectionStore', () => {
     expect(nativeStore.saveSettings).toHaveBeenCalledWith({
       serverMode: 'external',
       serverUrl: 'http://remote:45365',
+      authMode: 'none',
+      lastConnectedAt: null,
     });
     expect(useConnectionStore.getState().serverMode).toBe('external');
     expect(useConnectionStore.getState().serverUrl).toBe('http://remote:45365');
@@ -74,6 +82,8 @@ describe('loadPersistedSettings', () => {
     vi.mocked(nativeStore.loadSettings).mockResolvedValue({
       serverMode: 'external',
       serverUrl: 'http://myserver.local:45365',
+      authMode: 'none',
+      lastConnectedAt: null,
     });
 
     await loadPersistedSettings();
