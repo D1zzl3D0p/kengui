@@ -1,4 +1,5 @@
 import { resolveServerBaseUrl } from '../api/serverUrl';
+import { validateCloudConnection } from '../api/cloudClient';
 import { useConnectionStore } from '../store/connection';
 import { getAccessToken, refreshSupabaseSession } from '../auth/supabase';
 import { nativeCommands } from '../platform';
@@ -25,6 +26,11 @@ export interface RuntimeAdapter {
 }
 
 async function fetchHealth(serverUrl: string, mode: ServerMode): Promise<RuntimeHealth> {
+  if (mode === 'hosted') {
+    await validateCloudConnection();
+    return { status: 'healthy', capabilities: ['kenkui-cloud'] };
+  }
+
   const headers = new Headers();
   if (useConnectionStore.getState().authMode === 'supabase') {
     const token = await getAccessToken();

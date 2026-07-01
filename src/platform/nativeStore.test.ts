@@ -44,6 +44,7 @@ describe('nativeStore', () => {
       serverMode: 'external',
       serverUrl: 'http://remote:45365',
       authMode: 'none',
+      computeTarget: 'local',
       lastConnectedAt: null,
     });
   });
@@ -61,12 +62,14 @@ describe('nativeStore', () => {
       serverMode: 'hosted',
       serverUrl: 'https://api.kengui.app',
       authMode: 'supabase',
+      computeTarget: 'kenkui-cloud',
       lastConnectedAt: '2026-01-01T00:00:00.000Z',
     });
 
     expect(set).toHaveBeenCalledWith('serverMode', 'hosted');
     expect(set).toHaveBeenCalledWith('serverUrl', 'https://api.kengui.app');
     expect(set).toHaveBeenCalledWith('authMode', 'supabase');
+    expect(set).toHaveBeenCalledWith('computeTarget', 'kenkui-cloud');
     expect(set).toHaveBeenCalledWith('lastConnectedAt', '2026-01-01T00:00:00.000Z');
     expect(save).toHaveBeenCalled();
   });
@@ -80,6 +83,7 @@ describe('nativeStore', () => {
       serverMode: 'external',
       serverUrl: 'http://dev-server:45365',
       authMode: 'none',
+      computeTarget: 'local',
       lastConnectedAt: null,
     });
 
@@ -87,6 +91,7 @@ describe('nativeStore', () => {
       serverMode: 'local',
       serverUrl: 'http://localhost:45365',
       authMode: 'none',
+      computeTarget: 'local',
       lastConnectedAt: null,
     });
 

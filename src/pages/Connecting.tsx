@@ -13,21 +13,17 @@ import {
   loadAuthSessionSummary,
   supabaseConfigured,
   type AuthSessionSummary,
+  type SupabaseOAuthProvider,
 } from '../auth/supabase';
-import { deepLinks, externalUrl } from '../platform';
+import { authCallback, deepLinks, externalUrl } from '../platform';
+import { isLocalhostUrl, normalizeHttpUrl, normalizeSupabaseBaseUrl } from '../lib/cloudUrls';
 
 const HOSTED_RUNTIME_ENABLED = import.meta.env.VITE_KENGUI_ENABLE_HOSTED === 'true';
 const LOCAL_RUNTIME_ENABLED = import.meta.env.VITE_KENGUI_ENABLE_LOCAL !== 'false';
 const HOSTED_RUNTIME_URL =
-  import.meta.env.VITE_KENGUI_HOSTED_URL || 'https://api.kengui.app';
-
-function normalizeUrl(value: string): string {
-  const url = new URL(value.trim());
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error('Server URL must start with http:// or https://.');
-  }
-  return url.toString().replace(/\/$/, '');
-}
+  import.meta.env.VITE_KENGUI_HOSTED_URL ||
+  import.meta.env.VITE_SUPABASE_URL ||
+  'https://api.kengui.app';
 
 export default function Connecting() {
   const navigate = useNavigate();
@@ -38,6 +34,7 @@ export default function Connecting() {
     connectionStatus,
     connectionError,
     setServerMode,
+    setComputeTarget,
     setConnectionError,
   } = useConnectionStore();
   const [selectedMode, setSelectedMode] = useState<ServerMode>(
@@ -45,6 +42,9 @@ export default function Connecting() {
   );
   const [customUrl, setCustomUrl] = useState(
     serverMode === 'external' ? serverUrl : 'https://example.com'
+  );
+  const [hostedUrl, setHostedUrl] = useState(
+    serverMode === 'hosted' ? serverUrl : HOSTED_RUNTIME_URL
   );
   const [customAuthMode, setCustomAuthMode] = useState<ConnectionAuthMode>(authMode);
   const [authSession, setAuthSession] = useState<AuthSessionSummary | null>(null);
@@ -110,13 +110,29 @@ export default function Connecting() {
     };
   }, []);
 
-  async function beginOAuth(provider: 'google' | 'apple') {
+  async function beginOAuth(provider: SupabaseOAuthProvider) {
     setAuthMessage(null);
-    if (!supabaseConfigured()) {
+    const supabaseBaseUrl =
+      selectedMode === 'hosted' ? normalizeSupabaseBaseUrl(hostedUrl) : undefined;
+    if (!supabaseConfigured(supabaseBaseUrl)) {
       setAuthMessage('Supabase auth is not configured for this build.');
       return;
     }
-    await externalUrl.openExternalUrl(await createSupabaseOAuthUrl(provider));
+    const redirectTo = await authCallback.prepareAuthRedirectUrl();
+    if (
+      !redirectTo &&
+      selectedMode === 'hosted' &&
+      supabaseBaseUrl &&
+      isLocalhostUrl(supabaseBaseUrl)
+    ) {
+      setAuthMessage(
+        'Local Kengui Cloud sign in requires the Tauri app. Launch with `rtk npm run tauri -- dev` and try again.'
+      );
+      return;
+    }
+    await externalUrl.openExternalUrl(
+      await createSupabaseOAuthUrl(provider, redirectTo ?? undefined, supabaseBaseUrl)
+    );
   }
 
   async function signOut() {
@@ -134,12 +150,15 @@ export default function Connecting() {
         mode === 'local'
           ? 'http://localhost:45365'
           : mode === 'hosted'
-            ? HOSTED_RUNTIME_URL
-            : normalizeUrl(customUrl);
+            ? normalizeSupabaseBaseUrl(hostedUrl)
+            : normalizeHttpUrl(customUrl, 'Server URL');
       if (nextAuthMode === 'supabase' && !authSession) {
         throw new Error('Sign in before connecting to this runtime.');
       }
       await setServerMode(mode, nextUrl, nextAuthMode);
+      if (mode === 'hosted') {
+        await setComputeTarget('kenkui-cloud');
+      }
       await connectCurrentRuntime();
       navigate('/dashboard', { replace: true });
     } catch (error) {
@@ -234,6 +253,21 @@ export default function Connecting() {
           </section>
         )}
 
+        {selectedMode === 'hosted' && (
+          <section className="rounded-lg border bg-card p-5 shadow-sm">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="hosted-url">Hosted control plane URL</Label>
+              <Input
+                id="hosted-url"
+                type="url"
+                value={hostedUrl}
+                onChange={(event) => setHostedUrl(event.target.value)}
+                placeholder="https://api.kengui.app"
+              />
+            </div>
+          </section>
+        )}
+
         {requiresAuth && (
           <section className="rounded-lg border bg-card p-5 shadow-sm">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -246,7 +280,7 @@ export default function Connecting() {
                   <p className="text-sm text-muted-foreground">
                     {authSession?.email
                       ? `Signed in as ${authSession.email}`
-                      : 'Sign in with Google or Apple to use this runtime.'}
+                      : 'Sign in with Google, GitHub, or Apple to use this runtime.'}
                   </p>
                 </div>
               </div>
@@ -258,6 +292,10 @@ export default function Connecting() {
                     <Button variant="outline" onClick={() => beginOAuth('google')}>
                       <LogIn aria-hidden="true" />
                       Google
+                    </Button>
+                    <Button variant="outline" onClick={() => beginOAuth('github')}>
+                      <LogIn aria-hidden="true" />
+                      GitHub
                     </Button>
                     <Button variant="outline" onClick={() => beginOAuth('apple')}>
                       <ShieldCheck aria-hidden="true" />

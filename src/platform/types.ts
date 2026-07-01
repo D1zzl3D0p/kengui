@@ -1,5 +1,6 @@
 export type ServerMode = 'local' | 'external' | 'hosted';
 export type ConnectionAuthMode = 'none' | 'supabase';
+export type ComputeTarget = 'local' | 'kenkui-cloud';
 
 export interface RuntimeHealth {
   status: string;
@@ -27,6 +28,7 @@ export interface StoredSettings {
   serverMode: ServerMode;
   serverUrl: string;
   authMode: ConnectionAuthMode;
+  computeTarget: ComputeTarget;
   lastConnectedAt: string | null;
 }
 

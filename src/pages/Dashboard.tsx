@@ -14,9 +14,11 @@ import {
   cancelJob,
   removeJob,
   startQueue,
+  downloadJob,
 } from '../api/queue';
 import type { JobResponse, QueueResponse } from '../api/queue';
 import { nativeCommands } from '../platform';
+import { useConnectionStore } from '../store/connection';
 
 function formatEta(seconds: number): string {
   if (seconds <= 0) return '—';
@@ -79,6 +81,7 @@ function errorMessage(error: unknown, fallback: string): string {
 
 function JobRow({ job }: { job: JobResponse }) {
   const qc = useQueryClient();
+  const computeTarget = useConnectionStore((state) => state.computeTarget);
   const [actionError, setActionError] = useState<string | null>(null);
   const invalidate = () => qc.invalidateQueries({ queryKey: ['queue'] });
 
@@ -242,7 +245,10 @@ function JobRow({ job }: { job: JobResponse }) {
   });
 
   const openOutput = useMutation({
-    mutationFn: () => nativeCommands.openOutputFolder(job.output_path),
+    mutationFn: () =>
+      computeTarget === 'kenkui-cloud'
+        ? downloadJob(job.id)
+        : nativeCommands.openOutputFolder(job.output_path),
     onMutate: () => {
       setActionError(null);
     },
@@ -256,6 +262,7 @@ function JobRow({ job }: { job: JobResponse }) {
   const chapterSummary = selectedChapterSummary(job);
   const canCancel =
     job.status === 'pending' || job.status === 'processing' || job.status === 'paused';
+  const cloudQueue = computeTarget === 'kenkui-cloud';
   const runningSeconds =
     job.started_at > 0
       ? Math.max(
@@ -337,25 +344,25 @@ function JobRow({ job }: { job: JobResponse }) {
             <CirclePlay aria-hidden="true" />
             Starting...
           </Button>
-        ) : job.status === 'pending' && (
+        ) : !cloudQueue && job.status === 'pending' && (
           <Button size="sm" variant="outline" onClick={() => start.mutate()}>
             <CirclePlay aria-hidden="true" />
             Start
           </Button>
         )}
-        {job.status === 'processing' && (
+        {!cloudQueue && job.status === 'processing' && (
           <Button size="sm" variant="outline" onClick={() => pause.mutate()} disabled={pause.isPending}>
             <CirclePause aria-hidden="true" />
             {pause.isPending ? 'Pausing...' : 'Pause'}
           </Button>
         )}
-        {job.status === 'paused' && (
+        {!cloudQueue && job.status === 'paused' && (
           <Button size="sm" variant="outline" onClick={() => resume.mutate()} disabled={resume.isPending}>
             <CirclePlay aria-hidden="true" />
             {resume.isPending ? 'Resuming...' : 'Resume'}
           </Button>
         )}
-        {job.status === 'failed' && (
+        {!cloudQueue && job.status === 'failed' && (
           <Button size="sm" variant="outline" onClick={() => retry.mutate()} disabled={retry.isPending}>
             <RotateCcw aria-hidden="true" />
             {retry.isPending ? 'Retrying...' : 'Retry'}
@@ -369,7 +376,7 @@ function JobRow({ job }: { job: JobResponse }) {
             disabled={openOutput.isPending}
           >
             <FolderOpen aria-hidden="true" />
-            {openOutput.isPending ? 'Opening...' : 'Open'}
+            {openOutput.isPending ? (cloudQueue ? 'Downloading...' : 'Opening...') : (cloudQueue ? 'Download' : 'Open')}
           </Button>
         )}
         {canCancel && (

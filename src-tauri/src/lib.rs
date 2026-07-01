@@ -1,30 +1,43 @@
 use std::env;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use reqwest::header::CONTENT_TYPE;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
+#[cfg(unix)]
+const WATCHDOG_ARG: &str = "--kengui-runtime-watchdog";
 const LOG_TAIL_LIMIT: usize = 200;
 const LOG_FILE_READ_LIMIT: u64 = 256 * 1024;
 const LOCAL_SERVER_PORT: u16 = 45365;
 const SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(5);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const AUTH_CALLBACK_TIMEOUT: Duration = Duration::from_secs(300);
 const AUTH_SERVICE: &str = "app.kengui.desktop.auth";
 const AUTH_ACCOUNT: &str = "supabase-session";
 
 #[derive(Default)]
 pub struct ServerProcess {
-    child: Mutex<Option<Child>>,
+    child: Mutex<Option<ManagedServer>>,
     logs: Arc<Mutex<Vec<String>>>,
     last_error: Mutex<Option<String>>,
+}
+
+struct ManagedServer {
+    child: Child,
+    #[cfg(unix)]
+    process_group_id: u32,
+    #[cfg(unix)]
+    watchdog: Option<Child>,
 }
 
 #[derive(serde::Serialize)]
@@ -45,6 +58,51 @@ struct AuthSession {
     expires_at: i64,
     email: Option<String>,
     provider: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeFileStat {
+    path: String,
+    filename: String,
+    byte_size: u64,
+    content_type: String,
+}
+
+fn redact_signed_url(value: &str) -> String {
+    if value.contains("X-Amz-Signature")
+        || value.contains("X-Amz-Credential")
+        || value.contains("X-Amz-Security-Token")
+    {
+        "[REDACTED_SIGNED_URL]".to_string()
+    } else {
+        value.to_string()
+    }
+}
+
+fn validate_signed_url(url: &str) -> Result<(), String> {
+    if url.starts_with("https://") || url.starts_with("http://") {
+        Ok(())
+    } else {
+        Err("Signed URL must be an HTTP(S) URL.".to_string())
+    }
+}
+
+fn content_type_for_path(path: &Path) -> String {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "epub" => "application/epub+zip",
+        "pdf" => "application/pdf",
+        "txt" => "text/plain",
+        "json" => "application/json",
+        _ => "application/octet-stream",
+    }
+    .to_string()
 }
 
 fn push_log(logs: &Arc<Mutex<Vec<String>>>, message: String) {
@@ -89,7 +147,11 @@ fn uv_tool_bin_dir() -> Option<PathBuf> {
 }
 
 fn uv_tool_kenkui_path() -> Option<PathBuf> {
-    let executable = if cfg!(windows) { "kenkui.exe" } else { "kenkui" };
+    let executable = if cfg!(windows) {
+        "kenkui.exe"
+    } else {
+        "kenkui"
+    };
     uv_tool_bin_dir().map(|dir| dir.join(executable))
 }
 
@@ -146,6 +208,104 @@ fn server_command() -> Result<Command, String> {
     Ok(command)
 }
 
+#[cfg(unix)]
+fn signal_process_group(signal: &str, process_group_id: u32) -> Result<(), String> {
+    let status = Command::new("/bin/kill")
+        .arg(format!("-{signal}"))
+        .arg(format!("-{process_group_id}"))
+        .status()
+        .map_err(|e| format!("Failed to signal kenkui process group: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Failed to signal kenkui process group: /bin/kill exited with {status}"
+        ))
+    }
+}
+
+#[cfg(unix)]
+fn process_exists(pid: u32) -> bool {
+    Command::new("/bin/kill")
+        .arg("-0")
+        .arg(pid.to_string())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
+fn process_group_exists(process_group_id: u32) -> bool {
+    Command::new("/bin/kill")
+        .arg("-0")
+        .arg(format!("-{process_group_id}"))
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
+fn watchdog_main(parent_pid: u32, process_group_id: u32) {
+    loop {
+        if !process_group_exists(process_group_id) {
+            return;
+        }
+
+        if !process_exists(parent_pid) {
+            let _ = signal_process_group("TERM", process_group_id);
+            let deadline = Instant::now() + SHUTDOWN_GRACE_PERIOD;
+            while Instant::now() < deadline {
+                if !process_group_exists(process_group_id) {
+                    return;
+                }
+                thread::sleep(SHUTDOWN_POLL_INTERVAL);
+            }
+            let _ = signal_process_group("KILL", process_group_id);
+            return;
+        }
+
+        thread::sleep(Duration::from_secs(1));
+    }
+}
+
+#[cfg(unix)]
+fn run_watchdog_from_args() -> bool {
+    let mut args = env::args();
+    let _exe = args.next();
+    if args.next().as_deref() != Some(WATCHDOG_ARG) {
+        return false;
+    }
+
+    let Some(parent_pid) = args.next().and_then(|value| value.parse::<u32>().ok()) else {
+        return true;
+    };
+    let Some(process_group_id) = args.next().and_then(|value| value.parse::<u32>().ok()) else {
+        return true;
+    };
+
+    watchdog_main(parent_pid, process_group_id);
+    true
+}
+
+#[cfg(not(unix))]
+fn run_watchdog_from_args() -> bool {
+    false
+}
+
+#[cfg(unix)]
+fn spawn_process_watchdog(process_group_id: u32) -> Option<Child> {
+    let executable = env::current_exe().ok()?;
+    Command::new(executable)
+        .arg(WATCHDOG_ARG)
+        .arg(std::process::id().to_string())
+        .arg(process_group_id.to_string())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()
+}
+
 fn home_dir() -> Option<PathBuf> {
     env::var_os("HOME")
         .or_else(|| env::var_os("USERPROFILE"))
@@ -174,7 +334,8 @@ fn log_file_candidates() -> Vec<PathBuf> {
 }
 
 fn tail_file(path: &Path, max_bytes: u64) -> Result<Vec<String>, String> {
-    let mut file = File::open(path).map_err(|e| format!("Failed to open {}: {e}", path.display()))?;
+    let mut file =
+        File::open(path).map_err(|e| format!("Failed to open {}: {e}", path.display()))?;
     let len = file
         .metadata()
         .map_err(|e| format!("Failed to inspect {}: {e}", path.display()))?
@@ -242,7 +403,9 @@ fn local_port_owner() -> Option<String> {
         }
         let command = columns[0];
         let pid = columns[1];
-        Some(format!("{command} pid {pid} is listening on port {LOCAL_SERVER_PORT}"))
+        Some(format!(
+            "{command} pid {pid} is listening on port {LOCAL_SERVER_PORT}"
+        ))
     })
 }
 
@@ -258,7 +421,10 @@ fn output_folder_for_path(path: &Path) -> Result<PathBuf, String> {
     if folder.exists() {
         Ok(folder)
     } else {
-        Err(format!("Output folder does not exist: {}", folder.display()))
+        Err(format!(
+            "Output folder does not exist: {}",
+            folder.display()
+        ))
     }
 }
 
@@ -296,6 +462,105 @@ async fn open_output_folder(path: String) -> Result<(), String> {
     open_folder(&folder)
 }
 
+#[tauri::command]
+async fn file_stat(path: String) -> Result<NativeFileStat, String> {
+    let path_buf = PathBuf::from(&path);
+    let metadata = std::fs::metadata(&path_buf)
+        .map_err(|e| format!("Failed to inspect file metadata: {e}"))?;
+    if !metadata.is_file() {
+        return Err("Selected path is not a file.".to_string());
+    }
+    let filename = path_buf
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "Selected file has no valid filename.".to_string())?
+        .to_string();
+    Ok(NativeFileStat {
+        path,
+        filename,
+        byte_size: metadata.len(),
+        content_type: content_type_for_path(&path_buf),
+    })
+}
+
+#[tauri::command]
+async fn signed_upload_file(path: String, url: String, content_type: String) -> Result<(), String> {
+    validate_signed_url(&url)?;
+    let bytes = std::fs::read(&path).map_err(|e| format!("Failed to read upload file: {e}"))?;
+    let response = reqwest::Client::new()
+        .put(&url)
+        .header(CONTENT_TYPE, content_type)
+        .body(bytes)
+        .send()
+        .await
+        .map_err(|e| {
+            format!(
+                "Signed upload request failed: {}",
+                redact_signed_url(&e.to_string())
+            )
+        })?;
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Signed upload failed with status {}.",
+            response.status()
+        ))
+    }
+}
+
+#[tauri::command]
+async fn signed_upload_text(text: String, url: String, content_type: String) -> Result<(), String> {
+    validate_signed_url(&url)?;
+    let response = reqwest::Client::new()
+        .put(&url)
+        .header(CONTENT_TYPE, content_type)
+        .body(text)
+        .send()
+        .await
+        .map_err(|e| {
+            format!(
+                "Signed upload request failed: {}",
+                redact_signed_url(&e.to_string())
+            )
+        })?;
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Signed upload failed with status {}.",
+            response.status()
+        ))
+    }
+}
+
+#[tauri::command]
+async fn signed_download_file(url: String, output_path: String) -> Result<(), String> {
+    validate_signed_url(&url)?;
+    let response = reqwest::Client::new().get(&url).send().await.map_err(|e| {
+        format!(
+            "Signed download request failed: {}",
+            redact_signed_url(&e.to_string())
+        )
+    })?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Signed download failed with status {}.",
+            response.status()
+        ));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read signed download response: {e}"))?;
+    let output = PathBuf::from(output_path);
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create download folder: {e}"))?;
+    }
+    std::fs::write(&output, bytes).map_err(|e| format!("Failed to write signed download: {e}"))
+}
+
 fn startup_error_with_port_owner(message: String) -> String {
     match local_port_owner() {
         Some(owner) => format!("{message}. {owner}"),
@@ -303,60 +568,84 @@ fn startup_error_with_port_owner(message: String) -> String {
     }
 }
 
-fn try_wait_for_exit(child: &mut Child) -> Result<bool, String> {
-    child
+fn try_wait_for_exit(server: &mut ManagedServer) -> Result<bool, String> {
+    server
+        .child
         .try_wait()
         .map(|status| status.is_some())
         .map_err(|e| format!("Failed to inspect kenkui process: {e}"))
 }
 
-fn request_graceful_shutdown(child: &Child) -> Result<(), String> {
+fn request_graceful_shutdown(server: &ManagedServer) -> Result<(), String> {
     #[cfg(unix)]
     {
-        let status = Command::new("/bin/kill")
-            .arg("-TERM")
-            .arg(format!("-{}", child.id()))
-            .status()
-            .map_err(|e| format!("Failed to signal kenkui process: {e}"))?;
-        if status.success() {
-            return Ok(());
-        }
-
-        return Err(format!(
-            "Failed to signal kenkui process: /bin/kill exited with {status}"
-        ));
+        signal_process_group("TERM", server.process_group_id)
     }
 
     #[cfg(not(unix))]
     {
-        let _ = child;
+        let _ = server;
         Ok(())
     }
 }
 
-fn force_shutdown(child: &mut Child) -> Result<(), String> {
-    child
-        .kill()
-        .map_err(|e| format!("Failed to kill kenkui process: {e}"))
+fn force_shutdown(server: &mut ManagedServer) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        signal_process_group("KILL", server.process_group_id)
+    }
+
+    #[cfg(not(unix))]
+    {
+        server
+            .child
+            .kill()
+            .map_err(|e| format!("Failed to kill kenkui process: {e}"))
+    }
 }
 
-fn shutdown_child(child: &mut Child) -> Result<(), String> {
-    if try_wait_for_exit(child)? {
+#[cfg(unix)]
+fn cleanup_watchdog(server: &mut ManagedServer) {
+    let Some(watchdog) = server.watchdog.as_mut() else {
+        return;
+    };
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        match watchdog.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) => thread::sleep(SHUTDOWN_POLL_INTERVAL),
+            Err(_) => return,
+        }
+    }
+
+    let _ = watchdog.kill();
+    let _ = watchdog.wait();
+}
+
+#[cfg(not(unix))]
+fn cleanup_watchdog(_server: &mut ManagedServer) {}
+
+fn shutdown_child(server: &mut ManagedServer) -> Result<(), String> {
+    if try_wait_for_exit(server)? {
+        cleanup_watchdog(server);
         return Ok(());
     }
 
-    request_graceful_shutdown(child)?;
+    request_graceful_shutdown(server)?;
 
     let deadline = Instant::now() + SHUTDOWN_GRACE_PERIOD;
     while Instant::now() < deadline {
-        if try_wait_for_exit(child)? {
+        if try_wait_for_exit(server)? {
+            cleanup_watchdog(server);
             return Ok(());
         }
         thread::sleep(SHUTDOWN_POLL_INTERVAL);
     }
 
-    force_shutdown(child)?;
-    let _ = child.wait();
+    force_shutdown(server)?;
+    let _ = server.child.wait();
+    cleanup_watchdog(server);
     Ok(())
 }
 
@@ -378,8 +667,8 @@ fn shutdown_server_process(state: &ServerProcess) -> Result<(), String> {
 #[tauri::command]
 async fn spawn_server(app: AppHandle, state: State<'_, ServerProcess>) -> Result<(), String> {
     let mut lock = state.child.lock().unwrap();
-    if let Some(child) = lock.as_mut() {
-        match child.try_wait() {
+    if let Some(server) = lock.as_mut() {
+        match server.child.try_wait() {
             Ok(None) => return Ok(()),
             Ok(Some(_)) => {
                 let _ = lock.take();
@@ -398,7 +687,8 @@ async fn spawn_server(app: AppHandle, state: State<'_, ServerProcess>) -> Result
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| {
-            let message = startup_error_with_port_owner(format!("Failed to spawn kenkui serve: {e}"));
+            let message =
+                startup_error_with_port_owner(format!("Failed to spawn kenkui serve: {e}"));
             *state.last_error.lock().unwrap() = Some(message.clone());
             message
         })?;
@@ -452,7 +742,16 @@ async fn spawn_server(app: AppHandle, state: State<'_, ServerProcess>) -> Result
         }
     });
 
-    *lock = Some(child);
+    let process_group_id = child.id();
+    #[cfg(unix)]
+    let watchdog = spawn_process_watchdog(process_group_id);
+    *lock = Some(ManagedServer {
+        child,
+        #[cfg(unix)]
+        process_group_id,
+        #[cfg(unix)]
+        watchdog,
+    });
     *state.last_error.lock().unwrap() = None;
     Ok(())
 }
@@ -473,11 +772,11 @@ async fn server_status(state: State<'_, ServerProcess>) -> Result<ServerStatus, 
         let mut lock = state.child.lock().unwrap();
         let mut running = false;
         let mut pid = None;
-        if let Some(child) = lock.as_mut() {
-            match child.try_wait() {
+        if let Some(server) = lock.as_mut() {
+            match server.child.try_wait() {
                 Ok(None) => {
                     running = true;
-                    pid = Some(child.id());
+                    pid = Some(server.child.id());
                 }
                 Ok(Some(_)) => {
                     let _ = lock.take();
@@ -546,7 +845,9 @@ fn read_auth_session() -> Result<Option<String>, String> {
         "-w",
     ])?;
     if output.status.success() {
-        Ok(Some(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+        Ok(Some(
+            String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        ))
     } else {
         Ok(None)
     }
@@ -561,7 +862,9 @@ fn delete_auth_session() -> Result<(), String> {
         "-a",
         AUTH_ACCOUNT,
     ])?;
-    if output.status.success() || String::from_utf8_lossy(&output.stderr).contains("could not be found") {
+    if output.status.success()
+        || String::from_utf8_lossy(&output.stderr).contains("could not be found")
+    {
         Ok(())
     } else {
         Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
@@ -605,11 +908,95 @@ async fn clear_auth_session() -> Result<(), String> {
     delete_auth_session()
 }
 
+fn read_callback_target(stream: &mut TcpStream) -> Result<String, String> {
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .map_err(|e| format!("Failed to configure auth callback socket: {e}"))?;
+    let mut buffer = [0; 8192];
+    let read = stream
+        .read(&mut buffer)
+        .map_err(|e| format!("Failed to read auth callback request: {e}"))?;
+    let request = String::from_utf8_lossy(&buffer[..read]);
+    let request_line = request
+        .lines()
+        .next()
+        .ok_or_else(|| "Auth callback request was empty.".to_string())?;
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().unwrap_or_default();
+    let target = parts.next().unwrap_or_default();
+    if method != "GET" || !target.starts_with("/auth/callback") {
+        return Err("Auth callback request did not target /auth/callback.".to_string());
+    }
+    Ok(target.to_string())
+}
+
+fn write_callback_response(stream: &mut TcpStream, status: &str, body: &str) {
+    let response = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = stream.write_all(response.as_bytes());
+    let _ = stream.flush();
+}
+
+#[tauri::command]
+async fn start_auth_callback_listener(app: AppHandle) -> Result<String, String> {
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .map_err(|e| format!("Failed to bind auth callback listener: {e}"))?;
+    let addr = listener
+        .local_addr()
+        .map_err(|e| format!("Failed to read auth callback listener address: {e}"))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| format!("Failed to configure auth callback listener: {e}"))?;
+    let redirect_url = format!("http://127.0.0.1:{}/auth/callback", addr.port());
+    let app_handle = app.clone();
+
+    thread::spawn(move || {
+        let deadline = Instant::now() + AUTH_CALLBACK_TIMEOUT;
+        while Instant::now() < deadline {
+            match listener.accept() {
+                Ok((mut stream, _)) => match read_callback_target(&mut stream) {
+                    Ok(target) => {
+                        let callback_url =
+                            format!("http://127.0.0.1:{}{}", addr.port(), target);
+                        let _ = app_handle.emit("auth-callback", callback_url);
+                        write_callback_response(
+                            &mut stream,
+                            "200 OK",
+                            "<!doctype html><title>Kengui</title><p>Sign in complete. You can return to Kengui.</p>",
+                        );
+                        return;
+                    }
+                    Err(_) => {
+                        write_callback_response(
+                            &mut stream,
+                            "404 Not Found",
+                            "<!doctype html><title>Kengui</title><p>Not found.</p>",
+                        );
+                    }
+                },
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(100));
+                }
+                Err(_) => return,
+            }
+        }
+    });
+
+    Ok(redirect_url)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if run_watchdog_from_args() {
+        return;
+    }
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(ServerProcess::default())
         .invoke_handler(tauri::generate_handler![
             check_server_runtime,
@@ -618,9 +1005,14 @@ pub fn run() {
             server_logs,
             server_status,
             open_output_folder,
+            file_stat,
+            signed_upload_file,
+            signed_upload_text,
+            signed_download_file,
             save_auth_session,
             load_auth_session,
-            clear_auth_session
+            clear_auth_session,
+            start_auth_callback_listener
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
@@ -696,10 +1088,7 @@ mod tests {
 
     #[test]
     fn tail_file_reads_bounded_complete_lines() {
-        let path = std::env::temp_dir().join(format!(
-            "kengui-log-tail-{}.log",
-            std::process::id()
-        ));
+        let path = std::env::temp_dir().join(format!("kengui-log-tail-{}.log", std::process::id()));
         std::fs::write(&path, "first\nsecond\nthird\nfourth\n").unwrap();
 
         let lines = tail_file(&path, 14).unwrap();
@@ -710,10 +1099,7 @@ mod tests {
 
     #[test]
     fn output_folder_for_path_uses_parent_for_files() {
-        let dir = std::env::temp_dir().join(format!(
-            "kengui-output-folder-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("kengui-output-folder-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("book.m4b");
         std::fs::write(&file, "").unwrap();
@@ -722,5 +1108,27 @@ mod tests {
 
         let _ = std::fs::remove_file(file);
         let _ = std::fs::remove_dir(dir);
+    }
+
+    #[test]
+    fn content_type_for_path_allows_cloud_source_types() {
+        assert_eq!(
+            content_type_for_path(Path::new("book.epub")),
+            "application/epub+zip"
+        );
+        assert_eq!(
+            content_type_for_path(Path::new("book.pdf")),
+            "application/pdf"
+        );
+        assert_eq!(content_type_for_path(Path::new("book.txt")), "text/plain");
+    }
+
+    #[test]
+    fn redact_signed_url_removes_aws_signature_values() {
+        let redacted = redact_signed_url(
+            "https://bucket.example/object?X-Amz-Credential=abc&X-Amz-Signature=secret",
+        );
+
+        assert_eq!(redacted, "[REDACTED_SIGNED_URL]");
     }
 }

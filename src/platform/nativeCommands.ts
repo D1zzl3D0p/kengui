@@ -9,6 +9,34 @@ export interface NativeRuntimeCommands {
   serverStatus: () => Promise<LocalRuntimeStatus>;
   serverLogs: () => Promise<string[]>;
   openOutputFolder: (path: string) => Promise<void>;
+  fileStat: (path: string) => Promise<NativeFileStat>;
+  signedUploadFile: (args: SignedUploadFileArgs) => Promise<void>;
+  signedUploadText: (args: SignedUploadTextArgs) => Promise<void>;
+  signedDownloadFile: (args: SignedDownloadFileArgs) => Promise<void>;
+}
+
+export interface NativeFileStat {
+  path: string;
+  filename: string;
+  byteSize: number;
+  contentType: string;
+}
+
+export interface SignedUploadFileArgs {
+  path: string;
+  url: string;
+  contentType: string;
+}
+
+export interface SignedUploadTextArgs {
+  text: string;
+  url: string;
+  contentType: string;
+}
+
+export interface SignedDownloadFileArgs {
+  url: string;
+  outputPath: string;
 }
 
 function isTauriUnavailable(error: unknown): boolean {
@@ -52,4 +80,27 @@ export const nativeCommands: NativeRuntimeCommands = {
   serverLogs: () => invokeOrBrowserFallback('server_logs', []),
   openOutputFolder: (path) =>
     invokeOrBrowserFallback('open_output_folder', undefined, { path }),
+  fileStat: (path) => invokeOrBrowserFallback('file_stat', {
+    path,
+    filename: path.split(/[\\/]/).pop() || path,
+    byteSize: 0,
+    contentType: 'application/octet-stream',
+  }, { path }),
+  signedUploadFile: (args) =>
+    invokeOrBrowserFallback('signed_upload_file', undefined, { ...args }),
+  signedUploadText: async ({ text, url, contentType }) => {
+    try {
+      await invoke('signed_upload_text', { text, url, contentType });
+    } catch (error) {
+      if (!isTauriUnavailable(error)) throw error;
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body: text,
+      });
+      if (!response.ok) throw new Error(`Signed upload failed with ${response.status}.`);
+    }
+  },
+  signedDownloadFile: (args) =>
+    invokeOrBrowserFallback('signed_download_file', undefined, { ...args }),
 };

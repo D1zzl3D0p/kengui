@@ -18,6 +18,13 @@ import {
   updateProviderCredentials,
 } from '../api/credentials';
 import { useProviderModels } from '../hooks/useProviderModels';
+import {
+  clearAuthSession,
+  createSupabaseOAuthUrl,
+  loadAuthSessionSummary,
+  supabaseConfigured,
+} from '../auth/supabase';
+import { authCallback, externalUrl } from '../platform';
 
 vi.mock('../runtime/runtime', () => ({
   createRuntimeAdapter: vi.fn(),
@@ -46,6 +53,14 @@ vi.mock('../hooks/useProviderModels', () => ({
   useProviderModels: vi.fn(),
 }));
 
+vi.mock('../auth/supabase', () => ({
+  clearAuthSession: vi.fn(),
+  createSupabaseOAuthUrl: vi.fn(),
+  exchangeSupabaseCode: vi.fn(),
+  loadAuthSessionSummary: vi.fn(),
+  supabaseConfigured: vi.fn(),
+}));
+
 const runtime = {
   health: vi.fn(),
   status: vi.fn(),
@@ -61,6 +76,10 @@ const mockTestProviderCredentials = testProviderCredentials as ReturnType<typeof
 const mockUseProviderModels = useProviderModels as ReturnType<typeof vi.fn>;
 const mockSupportsProviderModels = supportsProviderModels as ReturnType<typeof vi.fn>;
 const mockSupportsProviderCredentials = supportsProviderCredentials as ReturnType<typeof vi.fn>;
+const mockLoadAuthSessionSummary = loadAuthSessionSummary as ReturnType<typeof vi.fn>;
+const mockCreateSupabaseOAuthUrl = createSupabaseOAuthUrl as ReturnType<typeof vi.fn>;
+const mockClearAuthSession = clearAuthSession as ReturnType<typeof vi.fn>;
+const mockSupabaseConfigured = supabaseConfigured as ReturnType<typeof vi.fn>;
 
 function renderSettings() {
   return render(
@@ -79,6 +98,8 @@ beforeEach(() => {
   useConnectionStore.setState({
     serverMode: 'local',
     serverUrl: 'http://localhost:45365',
+    authMode: 'none',
+    computeTarget: 'local',
     connectionStatus: 'checking',
     connectionError: null,
   });
@@ -184,6 +205,12 @@ beforeEach(() => {
   });
   mockDeleteProviderCredentials.mockResolvedValue(undefined);
   mockTestProviderCredentials.mockResolvedValue({ status: 'ok', message: 'Validated' });
+  mockLoadAuthSessionSummary.mockResolvedValue(null);
+  mockCreateSupabaseOAuthUrl.mockResolvedValue('https://project.supabase.co/auth/v1/authorize');
+  mockClearAuthSession.mockResolvedValue(undefined);
+  mockSupabaseConfigured.mockReturnValue(true);
+  vi.spyOn(authCallback, 'prepareAuthRedirectUrl').mockResolvedValue('http://127.0.0.1:49152/auth/callback');
+  vi.spyOn(externalUrl, 'openExternalUrl').mockResolvedValue(undefined);
   Object.assign(navigator, {
     clipboard: {
       writeText: vi.fn().mockResolvedValue(undefined),
@@ -194,7 +221,7 @@ beforeEach(() => {
 describe('Settings', () => {
   it('shows local mode selected by default', () => {
     renderSettings();
-    const localRadio = screen.getByLabelText(/local/i);
+    const localRadio = screen.getByLabelText('Local (managed)');
     expect(localRadio).toBeChecked();
   });
 
@@ -206,7 +233,45 @@ describe('Settings', () => {
 
   it('hides hosted cloud mode in the default desktop GitHub build', () => {
     renderSettings();
-    expect(screen.queryByLabelText(/kengui cloud/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Kengui Cloud')).not.toBeInTheDocument();
+  });
+
+  it('renders cloud account controls with Google, GitHub, and Apple sign in', async () => {
+    useConnectionStore.setState({ computeTarget: 'kenkui-cloud' });
+    renderSettings();
+
+    expect(await screen.findByRole('heading', { name: /cloud account/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /continue with google/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /continue with github/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /continue with apple/i })).toBeInTheDocument();
+    expect(screen.getByText(/sign in before cloud submission/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /continue with github/i }));
+
+    expect(authCallback.prepareAuthRedirectUrl).toHaveBeenCalled();
+    expect(createSupabaseOAuthUrl).toHaveBeenCalledWith(
+      'github',
+      'http://127.0.0.1:49152/auth/callback'
+    );
+    expect(externalUrl.openExternalUrl).toHaveBeenCalledWith(
+      'https://project.supabase.co/auth/v1/authorize'
+    );
+  });
+
+  it('shows signed in cloud account state and supports sign out', async () => {
+    useConnectionStore.setState({ computeTarget: 'kenkui-cloud' });
+    mockLoadAuthSessionSummary.mockResolvedValue({
+      email: 'reader@example.com',
+      provider: 'github',
+      expiresAt: 123,
+    });
+    renderSettings();
+
+    expect(await screen.findByText('reader@example.com')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /sign out/i }));
+
+    expect(clearAuthSession).toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /continue with google/i })).toBeInTheDocument();
   });
 
   it('shows runtime diagnostics and full logs', async () => {

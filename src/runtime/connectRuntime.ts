@@ -1,4 +1,5 @@
 import { useConnectionStore } from '../store/connection';
+import { validateCloudConnection } from '../api/cloudClient';
 import {
   createRuntimeAdapter,
   RuntimeCompatibilityError,
@@ -18,13 +19,14 @@ export async function connectCurrentRuntime(): Promise<void> {
   setConnectionStatus('checking');
   setConnectionError(null);
 
-  if (serverMode === 'local') {
-    const found = await runtime.checkAvailable();
-    if (!found) {
-      setConnectionStatus('not_found');
-      throw new Error('Kengui could not find a usable local kenkui runtime.');
-    }
+  if (serverMode === 'hosted') {
+    await validateCloudConnection();
+    setConnectionStatus('connected');
+    await markConnected();
+    return;
+  }
 
+  if (serverMode === 'local') {
     try {
       await runtime.health();
       setConnectionStatus('connected');
@@ -36,6 +38,12 @@ export async function connectCurrentRuntime(): Promise<void> {
         setConnectionStatus('error');
         throw healthError;
       }
+    }
+
+    const found = await runtime.checkAvailable();
+    if (!found) {
+      setConnectionStatus('not_found');
+      throw new Error('Kengui could not find a usable local kenkui runtime.');
     }
 
     await runtime.start();

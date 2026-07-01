@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Copy, KeyRound, RefreshCw, RotateCcw, Save, Server, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Check, Copy, KeyRound, LogIn, LogOut, RefreshCw, RotateCcw, Save, Server, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { Button } from '../components/ui/button';
 import { ModelCombobox } from '../components/ModelCombobox';
 import { useConnectionStore } from '../store/connection';
-import type { ServerMode } from '../store/connection';
+import type { ComputeTarget, ServerMode } from '../store/connection';
 import {
   createRuntimeAdapter,
   supportsProviderCredentials,
@@ -26,6 +26,17 @@ import {
 import { CREDENTIAL_PROVIDER_OPTIONS, M4B_BITRATE_OPTIONS, NLP_PROVIDER_OPTIONS, providerLabel } from '../lib/providerCatalog';
 import { withCurrentOption } from '../lib/selectOptions';
 import { useProviderModels } from '../hooks/useProviderModels';
+import {
+  clearAuthSession,
+  createSupabaseOAuthUrl,
+  exchangeSupabaseCode,
+  loadAuthSessionSummary,
+  supabaseConfigured,
+  type AuthSessionSummary,
+  type SupabaseOAuthProvider,
+} from '../auth/supabase';
+import { authCallback, deepLinks, externalUrl } from '../platform';
+import { normalizeSupabaseBaseUrl } from '../lib/cloudUrls';
 
 type LogOrder = 'newest' | 'oldest';
 type ConfigForm = {
@@ -61,7 +72,18 @@ const EMPTY_CONFIG_FORM: ConfigForm = {
 
 const HOSTED_RUNTIME_ENABLED = import.meta.env.VITE_KENGUI_ENABLE_HOSTED === 'true';
 const LOCAL_RUNTIME_ENABLED = import.meta.env.VITE_KENGUI_ENABLE_LOCAL !== 'false';
+const HOSTED_RUNTIME_URL =
+  import.meta.env.VITE_KENGUI_HOSTED_URL ||
+  import.meta.env.VITE_SUPABASE_URL ||
+  'https://api.kengui.app';
+const CLOUD_COMPUTE_ENABLED =
+  import.meta.env.VITE_KENGUI_ENABLE_CLOUD === 'true' || HOSTED_RUNTIME_ENABLED;
 const HIGH_LOCAL_WORKER_WARNING_THRESHOLD = 4;
+const CLOUD_AUTH_PROVIDERS: { provider: SupabaseOAuthProvider; label: string }[] = [
+  { provider: 'google', label: 'Google' },
+  { provider: 'github', label: 'GitHub' },
+  { provider: 'apple', label: 'Apple' },
+];
 
 function lineMatchesSeverity(line: string, filter: string): boolean {
   if (filter === 'all') return true;
@@ -112,9 +134,10 @@ function configPatchFromForm(form: ConfigForm): KenkuiConfig {
 }
 
 export default function Settings() {
-  const { serverMode, serverUrl, setServerMode } = useConnectionStore();
+  const { serverMode, serverUrl, computeTarget, setServerMode, setComputeTarget } = useConnectionStore();
   const [localMode, setLocalMode] = useState<ServerMode>(serverMode);
   const [localUrl, setLocalUrl] = useState(serverUrl);
+  const [localComputeTarget, setLocalComputeTarget] = useState<ComputeTarget>(computeTarget);
   const [saved, setSaved] = useState(false);
   const [health, setHealth] = useState<RuntimeHealth | null>(null);
   const [status, setStatus] = useState<LocalRuntimeStatus | null>(null);
@@ -139,6 +162,9 @@ export default function Settings() {
   const [credentialSaving, setCredentialSaving] = useState<string | null>(null);
   const [credentialMessage, setCredentialMessage] = useState<string | null>(null);
   const [credentialError, setCredentialError] = useState<string | null>(null);
+  const [authSession, setAuthSession] = useState<AuthSessionSummary | null>(null);
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
   const [selectedCredentialProvider, setSelectedCredentialProvider] = useState<string>(
     CREDENTIAL_PROVIDER_OPTIONS[0].value
   );
@@ -185,6 +211,8 @@ export default function Settings() {
   const providerModelsUnavailable =
     Boolean(health && !providerModelsSupported) ||
     Boolean(configModelsError?.includes('does not support provider model discovery'));
+  const showCloudAccount =
+    CLOUD_COMPUTE_ENABLED || computeTarget === 'kenkui-cloud' || localComputeTarget === 'kenkui-cloud';
 
   async function refreshDiagnostics() {
     const runtime = createRuntimeAdapter(serverMode, serverUrl);
@@ -244,24 +272,97 @@ export default function Settings() {
   }, [serverMode, serverUrl]);
 
   useEffect(() => {
+    if (serverMode === 'hosted') {
+      setConfigForm(EMPTY_CONFIG_FORM);
+      setVoices([]);
+      setCredentials([]);
+      return;
+    }
     refreshConfig();
     refreshCredentials();
     refreshVoices();
   }, [serverMode, serverUrl]);
 
+  useEffect(() => {
+    loadAuthSessionSummary().then(setAuthSession);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    deepLinks.onAuthCallback((url) => {
+      exchangeSupabaseCode(url)
+        .then((session) => {
+          if (cancelled) return;
+          setAuthSession({
+            email: session.email,
+            provider: session.provider,
+            expiresAt: session.expiresAt,
+          });
+          setAuthMessage('Signed in to Kengui Cloud.');
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            setAuthMessage(error instanceof Error ? error.message : 'Sign in failed.');
+          }
+        });
+    }).then((unlisten) => {
+      if (cancelled) unlisten();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   async function handleSave() {
     const runtime = createRuntimeAdapter(serverMode, serverUrl);
+    const nextUrl = localMode === 'hosted' ? normalizeSupabaseBaseUrl(localUrl) : localUrl;
+    const nextComputeTarget =
+      localMode === 'hosted' ? 'kenkui-cloud' : localComputeTarget;
 
     try {
       if (serverMode === 'local' && localMode !== 'local') {
         await runtime.stop();
       }
-      await setServerMode(localMode, localUrl);
+      await setServerMode(localMode, nextUrl);
+      await setComputeTarget(nextComputeTarget);
       setDiagnosticError(null);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (error) {
       setDiagnosticError(error instanceof Error ? error.message : 'Saving settings failed.');
+    }
+  }
+
+  async function beginOAuth(provider: SupabaseOAuthProvider) {
+    setAuthMessage(null);
+    if (!supabaseConfigured()) {
+      setAuthMessage('Supabase auth is not configured for this build.');
+      return;
+    }
+    setAuthLoading(true);
+    try {
+      const redirectTo = await authCallback.prepareAuthRedirectUrl();
+      await externalUrl.openExternalUrl(
+        await createSupabaseOAuthUrl(provider, redirectTo ?? undefined)
+      );
+    } catch (error) {
+      setAuthMessage(error instanceof Error ? error.message : 'Could not start sign in.');
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function signOut() {
+    setAuthLoading(true);
+    setAuthMessage(null);
+    try {
+      await clearAuthSession();
+      setAuthSession(null);
+      setAuthMessage('Signed out of Kengui Cloud.');
+    } catch (error) {
+      setAuthMessage(error instanceof Error ? error.message : 'Sign out failed.');
+    } finally {
+      setAuthLoading(false);
     }
   }
 
@@ -531,7 +632,11 @@ export default function Settings() {
                   value="hosted"
                   aria-label="Kengui Cloud"
                   checked={localMode === 'hosted'}
-                  onChange={() => setLocalMode('hosted')}
+                  onChange={() => {
+                    setLocalMode('hosted');
+                    setLocalUrl(serverMode === 'hosted' ? serverUrl : HOSTED_RUNTIME_URL);
+                    setLocalComputeTarget('kenkui-cloud');
+                  }}
                 />
                 <div>
                   <p className="font-medium text-sm">Kengui Cloud</p>
@@ -574,12 +679,110 @@ export default function Settings() {
             Open connection setup
           </Link>
 
+          {CLOUD_COMPUTE_ENABLED && (
+            <div className="flex flex-col gap-3 border-t pt-4">
+              <h3 className="font-medium">Compute target</h3>
+              <label className="flex cursor-pointer items-center gap-3 rounded-md border bg-background/45 p-3">
+                <input
+                  type="radio"
+                  name="computeTarget"
+                  value="local"
+                  aria-label="Local compute"
+                  checked={localComputeTarget === 'local'}
+                  onChange={() => setLocalComputeTarget('local')}
+                />
+                <div>
+                  <p className="font-medium text-sm">Local compute</p>
+                  <p className="text-xs text-muted-foreground">
+                    Submit render jobs to the local kenkui queue.
+                  </p>
+                </div>
+              </label>
+              <label className="flex cursor-pointer items-center gap-3 rounded-md border bg-background/45 p-3">
+                <input
+                  type="radio"
+                  name="computeTarget"
+                  value="kenkui-cloud"
+                  aria-label="Kengui Cloud compute"
+                  checked={localComputeTarget === 'kenkui-cloud'}
+                  onChange={() => setLocalComputeTarget('kenkui-cloud')}
+                />
+                <div>
+                  <p className="font-medium text-sm">Kengui Cloud compute</p>
+                  <p className="text-xs text-muted-foreground">
+                    Keep local preview and logs, then submit render jobs through Supabase and R2.
+                  </p>
+                </div>
+              </label>
+            </div>
+          )}
+
           {localMode !== serverMode && (
             <p className="text-xs text-muted-foreground">
               Changes take effect after restarting kengui.
             </p>
           )}
         </section>
+
+        {showCloudAccount && (
+          <section className="flex flex-col gap-4 rounded-lg border bg-card p-5 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 items-center justify-center rounded-md bg-muted text-primary">
+                <KeyRound className="size-5" aria-hidden="true" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-semibold">Cloud Account</h2>
+                <p className="text-sm text-muted-foreground">
+                  Sign in before submitting jobs to Kengui Cloud compute.
+                </p>
+              </div>
+            </div>
+
+            {authSession ? (
+              <div className="flex flex-col gap-3 rounded-md border bg-background/45 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">
+                    {authSession.email ?? 'Signed in to Kengui Cloud'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {authSession.provider ? `Provider: ${authSession.provider}` : 'Account session is stored securely.'}
+                  </p>
+                </div>
+                <Button variant="outline" className="w-fit" onClick={signOut} disabled={authLoading}>
+                  <LogOut aria-hidden="true" />
+                  {authLoading ? 'Signing out...' : 'Sign out'}
+                </Button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {localComputeTarget === 'kenkui-cloud' && (
+                  <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    Sign in before cloud submission. Local preview, voices, logs, and runtime settings still use your configured kenkui server.
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {CLOUD_AUTH_PROVIDERS.map(({ provider, label }) => (
+                    <Button
+                      key={provider}
+                      variant="outline"
+                      onClick={() => beginOAuth(provider)}
+                      disabled={authLoading}
+                    >
+                      <LogIn aria-hidden="true" />
+                      Continue with {label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {authMessage && (
+              <p className="rounded-md border bg-background/45 px-3 py-2 text-sm text-muted-foreground">
+                {authMessage}
+              </p>
+            )}
+          </section>
+        )}
 
         <section className="flex flex-col gap-4 rounded-lg border bg-card p-5 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
           <div className="flex items-center justify-between gap-3">
@@ -599,6 +802,8 @@ export default function Settings() {
             <dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-2">
               <dt className="text-muted-foreground">Mode</dt>
               <dd>{serverMode}</dd>
+              <dt className="text-muted-foreground">Compute</dt>
+              <dd>{computeTarget === 'kenkui-cloud' ? 'Kengui Cloud' : 'Local'}</dd>
               <dt className="text-muted-foreground">Server URL</dt>
               <dd className="break-all">{serverUrl}</dd>
               <dt className="text-muted-foreground">Health</dt>

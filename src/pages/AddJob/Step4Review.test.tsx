@@ -5,6 +5,8 @@ import Step4Review from './Step4Review';
 import { ApiError } from '../../api/client';
 import type { WizardState } from './index';
 import type { JobResponse } from '../../api/queue';
+import { getAccessToken } from '../../auth/supabase';
+import { useConnectionStore } from '../../store/connection';
 
 vi.mock('../../api/queue', () => ({
   createJob: vi.fn(),
@@ -13,6 +15,10 @@ vi.mock('../../api/queue', () => ({
   pauseJob: vi.fn(),
   resumeJob: vi.fn(),
   cancelJob: vi.fn(),
+}));
+
+vi.mock('../../auth/supabase', () => ({
+  getAccessToken: vi.fn(),
 }));
 
 import { createJob } from '../../api/queue';
@@ -55,6 +61,8 @@ const mockJobResponse: JobResponse = {
 describe('Step4Review', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useConnectionStore.setState({ computeTarget: 'local' });
+    vi.mocked(getAccessToken).mockResolvedValue(null);
     mockStartQueue.mockResolvedValue({ status: 'started' });
   });
 
@@ -220,5 +228,20 @@ describe('Step4Review', () => {
     await waitFor(() => {
       expect(screen.getByText(/failed to submit job: invalid voice/i)).toBeInTheDocument();
     });
+  });
+
+  it('requires a cloud account before submitting cloud jobs', async () => {
+    useConnectionStore.setState({ computeTarget: 'kenkui-cloud' });
+
+    render(
+      <Step4Review state={mockState} onBack={vi.fn()} onDone={vi.fn()} />
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /submit/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/sign in to kengui cloud in settings/i)).toBeInTheDocument();
+    });
+    expect(mockCreateJob).not.toHaveBeenCalled();
   });
 });

@@ -3,6 +3,8 @@ import { CheckCircle2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { ApiError } from '../../api/client';
 import { createJob, startQueue } from '../../api/queue';
+import { getAccessToken } from '../../auth/supabase';
+import { useConnectionStore } from '../../store/connection';
 import type { WizardState } from './index';
 
 interface Props {
@@ -14,6 +16,7 @@ interface Props {
 export default function Step4Review({ state, onBack, onDone }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const computeTarget = useConnectionStore((store) => store.computeTarget);
 
   const title = state.book.metadata?.title as string | undefined;
 
@@ -41,6 +44,9 @@ export default function Step4Review({ state, onBack, onDone }: Props) {
     setLoading(true);
     setError(null);
     try {
+      if (computeTarget === 'kenkui-cloud' && !(await getAccessToken())) {
+        throw new Error('Sign in to Kengui Cloud in Settings before submitting cloud jobs.');
+      }
       await createJob({
         ebook_path: state.filePath,
         voice: state.voice,
@@ -63,10 +69,12 @@ export default function Step4Review({ state, onBack, onDone }: Props) {
         job_attribution_model: state.narrationMode === 'multi' ? state.nlpModel ?? null : null,
         job_attribution_execution_mode: 'local',
       });
-      try {
-        await startQueue();
-      } catch (error) {
-        console.warn('Job submitted, but the queue could not be started.', error);
+      if (computeTarget === 'local') {
+        try {
+          await startQueue();
+        } catch (error) {
+          console.warn('Job submitted, but the queue could not be started.', error);
+        }
       }
       onDone();
     } catch (error) {
@@ -96,6 +104,13 @@ export default function Step4Review({ state, onBack, onDone }: Props) {
       </div>
 
       <div className="rounded-lg border bg-card p-4 flex flex-col gap-3 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Compute
+          </span>
+          <span className="text-sm">{computeTarget === 'kenkui-cloud' ? 'Kengui Cloud' : 'Local'}</span>
+        </div>
+
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
             Book

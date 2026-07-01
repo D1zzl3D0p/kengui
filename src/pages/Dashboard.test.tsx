@@ -6,6 +6,7 @@ import { MemoryRouter } from 'react-router-dom';
 import Dashboard from './Dashboard';
 import * as queueApi from '../api/queue';
 import { nativeCommands } from '../platform';
+import { useConnectionStore } from '../store/connection';
 
 vi.mock('../api/queue');
 vi.mock('../platform', () => ({
@@ -46,6 +47,8 @@ const mockJob = {
 };
 
 beforeEach(() => {
+  vi.clearAllMocks();
+  useConnectionStore.setState({ computeTarget: 'local' });
   vi.mocked(nativeCommands.openOutputFolder).mockResolvedValue(undefined);
   vi.mocked(queueApi.fetchQueue).mockResolvedValue({
     items: [mockJob],
@@ -300,5 +303,31 @@ describe('Dashboard', () => {
     await userEvent.click(screen.getByRole('button', { name: /start/i }));
 
     await waitFor(() => expect(screen.getByText('already running')).toBeInTheDocument());
+  });
+
+  it('hides local-only actions for cloud jobs but keeps cloud actions', async () => {
+    useConnectionStore.setState({ computeTarget: 'kenkui-cloud' });
+    vi.mocked(queueApi.downloadJob).mockResolvedValue(undefined);
+    vi.mocked(queueApi.cancelJob).mockResolvedValue(undefined);
+    vi.mocked(queueApi.removeJob).mockResolvedValue(undefined);
+    vi.mocked(queueApi.fetchQueue).mockResolvedValue({
+      items: [
+        { ...mockJob, status: 'pending', id: 'cloud-pending' },
+        { ...mockJob, status: 'completed', id: 'cloud-done', output_path: 'cloud-done.m4b' },
+      ],
+      current_item: null,
+      pending_count: 1,
+      completed_count: 1,
+      failed_count: 0,
+    });
+    renderDashboard();
+
+    await waitFor(() => screen.getByText(/cloud-done\.m4b/));
+
+    expect(screen.queryByRole('button', { name: /^start$/i })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /download/i }));
+    expect(queueApi.downloadJob).toHaveBeenCalledWith('cloud-done');
+    expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /remove/i })).toBeInTheDocument();
   });
 });

@@ -1,4 +1,12 @@
 import { apiRequest } from './client';
+import {
+  cancelCloudJob,
+  cloudQueueSelected,
+  createCloudJob,
+  downloadCloudJob,
+  fetchCloudQueue,
+  purgeCloudJob,
+} from './cloudQueue';
 
 export type JobStatus =
   | 'pending'
@@ -82,23 +90,24 @@ export interface JobCreateRequest {
   job_attribution_model?: string | null;
 }
 
-export const fetchQueue = () => apiRequest<QueueResponse>('/queue');
+export const fetchQueue = () => cloudQueueSelected() ? fetchCloudQueue() : apiRequest<QueueResponse>('/queue');
 export const createJob = (req: JobCreateRequest) =>
-  apiRequest<JobResponse>('/queue', { method: 'POST', body: JSON.stringify(req) });
+  cloudQueueSelected() ? createCloudJob(req) : apiRequest<JobResponse>('/queue', { method: 'POST', body: JSON.stringify(req) });
 export const startQueue = () =>
-  apiRequest<{ status: string }>('/queue/start', { method: 'POST' });
+  cloudQueueSelected() ? Promise.resolve({ status: 'cloud-managed' }) : apiRequest<{ status: string }>('/queue/start', { method: 'POST' });
 export const pauseJob = (id: string) =>
-  apiRequest<void>(`/queue/${id}/pause`, { method: 'POST' });
+  cloudQueueSelected() ? Promise.reject(new Error('Kengui Cloud jobs cannot be paused.')) : apiRequest<void>(`/queue/${id}/pause`, { method: 'POST' });
 export const resumeJob = (id: string) =>
-  apiRequest<void>(`/queue/${id}/resume`, { method: 'POST' });
+  cloudQueueSelected() ? Promise.reject(new Error('Kengui Cloud jobs cannot be resumed.')) : apiRequest<void>(`/queue/${id}/resume`, { method: 'POST' });
 export const retryJob = (id: string) =>
-  apiRequest<JobResponse>(`/queue/${id}/retry`, { method: 'POST' });
+  cloudQueueSelected() ? Promise.reject(new Error('Retry is not available for Kengui Cloud jobs yet.')) : apiRequest<JobResponse>(`/queue/${id}/retry`, { method: 'POST' });
 // cancelJob: Sends DELETE to the queue endpoint, which kenkui interprets as
 // "stop processing and remove this job". Valid for pending/processing/paused jobs.
 // NOTE: kenkui's DELETE endpoint both cancels AND removes — there is no separate cancel HTTP verb.
 // A running job that is DELETEd will be stopped and removed immediately.
 export const cancelJob = (id: string) =>
-  apiRequest<void>(`/queue/${id}`, { method: 'DELETE' });
+  cloudQueueSelected() ? cancelCloudJob(id) : apiRequest<void>(`/queue/${id}`, { method: 'DELETE' });
 // removeJob: Same HTTP call — kenkui removes terminal (completed/failed/cancelled) jobs.
 export const removeJob = (id: string) =>
-  apiRequest<void>(`/queue/${id}`, { method: 'DELETE' });
+  cloudQueueSelected() ? purgeCloudJob(id) : apiRequest<void>(`/queue/${id}`, { method: 'DELETE' });
+export const downloadJob = (id: string) => downloadCloudJob(id);

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { nativeCommands } from '../platform';
+import { validateCloudConnection } from '../api/cloudClient';
 import {
   createRuntimeAdapter,
   supportsProviderCredentials,
@@ -18,6 +19,10 @@ vi.mock('../platform', () => ({
   },
 }));
 
+vi.mock('../api/cloudClient', () => ({
+  validateCloudConnection: vi.fn(),
+}));
+
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
@@ -28,6 +33,8 @@ describe('createRuntimeAdapter', () => {
     vi.mocked(nativeCommands.killServer).mockReset();
     vi.mocked(nativeCommands.serverStatus).mockReset();
     vi.mocked(nativeCommands.serverLogs).mockReset();
+    vi.mocked(validateCloudConnection).mockReset();
+    vi.mocked(validateCloudConnection).mockResolvedValue(undefined);
     mockFetch.mockReset();
   });
 
@@ -70,6 +77,18 @@ describe('createRuntimeAdapter', () => {
       expect.objectContaining({ headers: expect.any(Headers) })
     );
     expect(nativeCommands.spawnServer).not.toHaveBeenCalled();
+  });
+
+  it('checks hosted health through the cloud control plane', async () => {
+    const runtime = createRuntimeAdapter('hosted', 'http://127.0.0.1:54321');
+
+    await expect(runtime.health()).resolves.toEqual({
+      status: 'healthy',
+      capabilities: ['kenkui-cloud'],
+    });
+
+    expect(validateCloudConnection).toHaveBeenCalledTimes(1);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('allows local runtimes without optional provider model discovery', async () => {

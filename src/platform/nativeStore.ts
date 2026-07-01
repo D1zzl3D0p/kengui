@@ -1,12 +1,13 @@
 import { load } from '@tauri-apps/plugin-store';
 
-import type { ConnectionAuthMode, ServerMode, StoredSettings } from './types';
+import type { ComputeTarget, ConnectionAuthMode, ServerMode, StoredSettings } from './types';
 
 const SETTINGS_FILE = 'settings.json';
 const DEFAULT_SETTINGS: StoredSettings = {
   serverMode: 'local',
   serverUrl: 'http://localhost:45365',
   authMode: 'none',
+  computeTarget: 'local',
   lastConnectedAt: null,
 };
 
@@ -23,6 +24,7 @@ function writeLocalStorageSettings(settings: StoredSettings): void {
   localStorage.setItem('serverMode', settings.serverMode);
   localStorage.setItem('serverUrl', settings.serverUrl);
   localStorage.setItem('authMode', settings.authMode);
+  localStorage.setItem('computeTarget', settings.computeTarget);
   if (settings.lastConnectedAt) {
     localStorage.setItem('lastConnectedAt', settings.lastConnectedAt);
   } else {
@@ -48,6 +50,9 @@ export const nativeStore: NativeSettingsStore = {
         authMode:
           (await store.get<ConnectionAuthMode>('authMode')) ??
           DEFAULT_SETTINGS.authMode,
+        computeTarget:
+          (await store.get<ComputeTarget>('computeTarget')) ??
+          DEFAULT_SETTINGS.computeTarget,
         lastConnectedAt:
           (await store.get<string>('lastConnectedAt')) ??
           DEFAULT_SETTINGS.lastConnectedAt,
@@ -58,6 +63,8 @@ export const nativeStore: NativeSettingsStore = {
           readLocalStorageSetting('serverMode') ?? DEFAULT_SETTINGS.serverMode,
         serverUrl: readLocalStorageSetting('serverUrl') ?? DEFAULT_SETTINGS.serverUrl,
         authMode: readLocalStorageSetting('authMode') ?? DEFAULT_SETTINGS.authMode,
+        computeTarget:
+          readLocalStorageSetting('computeTarget') ?? DEFAULT_SETTINGS.computeTarget,
         lastConnectedAt:
           readLocalStorageSetting('lastConnectedAt') ?? DEFAULT_SETTINGS.lastConnectedAt,
       };
@@ -70,6 +77,7 @@ export const nativeStore: NativeSettingsStore = {
       await store.set('serverMode', settings.serverMode);
       await store.set('serverUrl', settings.serverUrl);
       await store.set('authMode', settings.authMode);
+      await store.set('computeTarget', settings.computeTarget);
       await store.set('lastConnectedAt', settings.lastConnectedAt);
       await store.save();
     } catch {

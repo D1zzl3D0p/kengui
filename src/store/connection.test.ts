@@ -9,6 +9,7 @@ vi.mock('../platform', () => ({
         serverMode: 'local',
         serverUrl: 'http://localhost:45365',
         authMode: 'none',
+        computeTarget: 'local',
         lastConnectedAt: null,
       })
     ),
@@ -21,6 +22,7 @@ beforeEach(() => {
     serverMode: 'local',
     serverUrl: 'http://localhost:45365',
     authMode: 'none',
+    computeTarget: 'local',
     lastConnectedAt: null,
     connectionStatus: 'checking',
     connectionError: null,
@@ -30,6 +32,7 @@ beforeEach(() => {
     serverMode: 'local',
     serverUrl: 'http://localhost:45365',
     authMode: 'none',
+    computeTarget: 'local',
     lastConnectedAt: null,
   });
   vi.mocked(nativeStore.saveSettings).mockReset();
@@ -62,10 +65,24 @@ describe('useConnectionStore', () => {
       serverMode: 'external',
       serverUrl: 'http://remote:45365',
       authMode: 'none',
+      computeTarget: 'local',
       lastConnectedAt: null,
     });
     expect(useConnectionStore.getState().serverMode).toBe('external');
     expect(useConnectionStore.getState().serverUrl).toBe('http://remote:45365');
+  });
+
+  it('setComputeTarget persists cloud render selection', async () => {
+    await useConnectionStore.getState().setComputeTarget('kenkui-cloud');
+
+    expect(nativeStore.saveSettings).toHaveBeenCalledWith({
+      serverMode: 'local',
+      serverUrl: 'http://localhost:45365',
+      authMode: 'none',
+      computeTarget: 'kenkui-cloud',
+      lastConnectedAt: null,
+    });
+    expect(useConnectionStore.getState().computeTarget).toBe('kenkui-cloud');
   });
 });
 
@@ -83,6 +100,7 @@ describe('loadPersistedSettings', () => {
       serverMode: 'external',
       serverUrl: 'http://myserver.local:45365',
       authMode: 'none',
+      computeTarget: 'local',
       lastConnectedAt: null,
     });
 

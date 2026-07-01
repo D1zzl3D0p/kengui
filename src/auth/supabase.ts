@@ -1,7 +1,10 @@
 import { secureStore, type StoredAuthSession } from '../platform';
+import { useConnectionStore } from '../store/connection';
+import { normalizeSupabaseBaseUrl } from '../lib/cloudUrls';
 
 const PKCE_VERIFIER_KEY = 'kengui.pkce.verifier';
 const PKCE_STATE_KEY = 'kengui.pkce.state';
+const PKCE_SUPABASE_URL_KEY = 'kengui.pkce.supabaseUrl';
 
 export interface AuthSessionSummary {
   email: string | null;
@@ -9,14 +12,24 @@ export interface AuthSessionSummary {
   expiresAt: number;
 }
 
-export function supabaseConfigured(): boolean {
-  return Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
+export type SupabaseOAuthProvider = 'google' | 'github' | 'apple';
+
+export function supabaseConfigured(supabaseBaseUrl?: string): boolean {
+  return Boolean(resolveSupabaseUrl(supabaseBaseUrl) && import.meta.env.VITE_SUPABASE_ANON_KEY);
 }
 
-function supabaseUrl(): string {
+function resolveSupabaseUrl(override?: string): string | null {
+  if (override) return normalizeSupabaseBaseUrl(override);
+  const { serverMode, serverUrl } = useConnectionStore.getState();
+  if (serverMode === 'hosted') return normalizeSupabaseBaseUrl(serverUrl);
   const url = import.meta.env.VITE_SUPABASE_URL;
+  return url ? normalizeSupabaseBaseUrl(url) : null;
+}
+
+function supabaseUrl(override?: string): string {
+  const url = resolveSupabaseUrl(override);
   if (!url) throw new Error('Supabase URL is not configured.');
-  return url.replace(/\/$/, '');
+  return url;
 }
 
 function supabaseAnonKey(): string {
@@ -42,7 +55,8 @@ async function sha256Base64Url(value: string): Promise<string> {
   return base64Url(new Uint8Array(digest));
 }
 
-function redirectUrl(): string {
+function redirectUrl(override?: string): string {
+  if (override) return override;
   if (typeof window === 'undefined') return 'kengui://auth/callback';
   if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
     return `${window.location.origin}/connect`;
@@ -50,20 +64,26 @@ function redirectUrl(): string {
   return 'kengui://auth/callback';
 }
 
-export async function createSupabaseOAuthUrl(provider: 'google' | 'apple'): Promise<string> {
+export async function createSupabaseOAuthUrl(
+  provider: SupabaseOAuthProvider,
+  redirectTo?: string,
+  supabaseBaseUrl?: string
+): Promise<string> {
   const verifier = randomBase64Url(48);
   const state = randomBase64Url(24);
+  const baseUrl = supabaseUrl(supabaseBaseUrl);
   sessionStorage.setItem(PKCE_VERIFIER_KEY, verifier);
   sessionStorage.setItem(PKCE_STATE_KEY, state);
+  sessionStorage.setItem(PKCE_SUPABASE_URL_KEY, baseUrl);
 
   const params = new URLSearchParams({
     provider,
-    redirect_to: redirectUrl(),
+    redirect_to: redirectUrl(redirectTo),
     code_challenge: await sha256Base64Url(verifier),
     code_challenge_method: 'S256',
     state,
   });
-  return `${supabaseUrl()}/auth/v1/authorize?${params}`;
+  return `${baseUrl}/auth/v1/authorize?${params}`;
 }
 
 function normalizeSession(data: any): StoredAuthSession {
@@ -91,7 +111,8 @@ export async function exchangeSupabaseCode(callbackUrl: string): Promise<StoredA
     throw new Error('Could not complete sign in. Start the login again.');
   }
 
-  const response = await fetch(`${supabaseUrl()}/auth/v1/token?grant_type=pkce`, {
+  const baseUrl = sessionStorage.getItem(PKCE_SUPABASE_URL_KEY) ?? undefined;
+  const response = await fetch(`${supabaseUrl(baseUrl)}/auth/v1/token?grant_type=pkce`, {
     method: 'POST',
     headers: {
       apikey: supabaseAnonKey(),
@@ -110,6 +131,7 @@ export async function exchangeSupabaseCode(callbackUrl: string): Promise<StoredA
   await secureStore.saveSession(session);
   sessionStorage.removeItem(PKCE_VERIFIER_KEY);
   sessionStorage.removeItem(PKCE_STATE_KEY);
+  sessionStorage.removeItem(PKCE_SUPABASE_URL_KEY);
   return session;
 }
 

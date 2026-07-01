@@ -19,6 +19,9 @@ vi.mock('./platform', () => ({
   deepLinks: {
     onAuthCallback: vi.fn(() => Promise.resolve(() => {})),
   },
+  authCallback: {
+    prepareAuthRedirectUrl: vi.fn(() => Promise.resolve(null)),
+  },
   externalUrl: {
     openExternalUrl: vi.fn(() => Promise.resolve()),
   },
@@ -33,6 +36,7 @@ vi.mock('./platform', () => ({
         serverMode: 'local',
         serverUrl: 'http://localhost:45365',
         authMode: 'none',
+        computeTarget: 'local',
         lastConnectedAt: '2026-01-01T00:00:00.000Z',
       })
     ),
@@ -49,6 +53,7 @@ beforeEach(() => {
     serverMode: 'local',
     serverUrl: 'http://localhost:45365',
     authMode: 'none',
+    computeTarget: 'local',
     lastConnectedAt: '2026-01-01T00:00:00.000Z',
     connectionStatus: 'checking',
     connectionError: null,
@@ -69,6 +74,7 @@ beforeEach(() => {
     serverMode: 'local',
     serverUrl: 'http://localhost:45365',
     authMode: 'none',
+    computeTarget: 'local',
     lastConnectedAt: '2026-01-01T00:00:00.000Z',
   });
   vi.mocked(nativeStore.saveSettings).mockReset();
@@ -290,6 +296,40 @@ describe('App startup — local mode', () => {
       expect(screen.getByRole('heading', { name: /queue/i })).toBeInTheDocument();
     });
 
+    expect(nativeCommands.spawnServer).not.toHaveBeenCalled();
+  });
+
+  it('attaches to an already running local runtime even when no executable is discoverable', async () => {
+    vi.mocked(nativeCommands.checkServerRuntime).mockResolvedValue(false);
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve(
+            url.endsWith('/health')
+              ? {
+                  status: 'healthy',
+                  capabilities: [
+                    'local-queue',
+                    'single-voice',
+                    'multi-voice',
+                    'voices',
+                    'book-parse',
+                  ],
+                }
+              : { status: 'idle', is_running: false, items: [] }
+          ),
+      })
+    );
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /queue/i })).toBeInTheDocument();
+    });
+
+    expect(nativeCommands.checkServerRuntime).not.toHaveBeenCalled();
     expect(nativeCommands.spawnServer).not.toHaveBeenCalled();
   });
 
