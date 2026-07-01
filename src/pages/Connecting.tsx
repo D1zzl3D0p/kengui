@@ -10,6 +10,7 @@ import {
   clearAuthSession,
   exchangeSupabaseCode,
   loadAuthSessionSummary,
+  supabaseOAuthErrorMessage,
   type AuthSessionSummary,
   type SupabaseOAuthProvider,
 } from '../auth/supabase';
@@ -69,6 +70,12 @@ export default function Connecting() {
 
   useEffect(() => {
     const callbackUrl = window.location.href;
+    const callbackError = supabaseOAuthErrorMessage(callbackUrl);
+    if (callbackError) {
+      setAuthMessage(callbackError);
+      window.history.replaceState({}, '', '/connect');
+      return;
+    }
     if (!new URL(callbackUrl).searchParams.has('code')) return;
     exchangeSupabaseCode(callbackUrl)
       .then((session) => {
@@ -117,7 +124,7 @@ export default function Connecting() {
       await beginSupabaseOAuth({
         provider,
         supabaseBaseUrl,
-        requireNativeCallbackForLocalhost: selectedMode === 'hosted',
+        callbackMode: selectedMode === 'hosted' ? 'desktop' : 'browser',
       });
     } catch (error) {
       setAuthMessage(error instanceof Error ? error.message : 'Could not start sign in.');

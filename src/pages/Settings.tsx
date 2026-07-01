@@ -342,7 +342,7 @@ export default function Settings() {
       await beginSupabaseOAuth({
         provider,
         supabaseBaseUrl,
-        requireNativeCallbackForLocalhost: true,
+        callbackMode: 'desktop',
       });
     } catch (error) {
       setAuthMessage(error instanceof Error ? error.message : 'Could not start sign in.');

@@ -247,7 +247,7 @@ describe('Settings', () => {
     expect(beginSupabaseOAuth).toHaveBeenCalledWith({
       provider: 'github',
       supabaseBaseUrl: 'http://127.0.0.1:54321',
-      requireNativeCallbackForLocalhost: true,
+      callbackMode: 'desktop',
     });
   });
 
@@ -265,7 +265,7 @@ describe('Settings', () => {
     expect(beginSupabaseOAuth).toHaveBeenCalledWith({
       provider: 'github',
       supabaseBaseUrl: 'http://127.0.0.1:54321',
-      requireNativeCallbackForLocalhost: true,
+      callbackMode: 'desktop',
     });
   });
 

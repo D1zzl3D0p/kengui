@@ -964,7 +964,7 @@ async fn start_auth_callback_listener(app: AppHandle) -> Result<String, String> 
                         write_callback_response(
                             &mut stream,
                             "200 OK",
-                            "<!doctype html><title>Kengui</title><p>Sign in complete. You can return to Kengui.</p>",
+                            "<!doctype html><title>Kengui desktop sign in</title><p>Sign in complete for the Kengui desktop app. You can close this browser tab and return to Kengui.</p>",
                         );
                         return;
                     }

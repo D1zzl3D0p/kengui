@@ -30,7 +30,7 @@ describe('beginSupabaseOAuth', () => {
     await beginSupabaseOAuth({
       provider: 'github',
       supabaseBaseUrl: 'http://127.0.0.1:54321',
-      requireNativeCallbackForLocalhost: true,
+      callbackMode: 'desktop',
     });
 
     expect(createSupabaseOAuthUrl).toHaveBeenCalledWith(
@@ -43,18 +43,52 @@ describe('beginSupabaseOAuth', () => {
     );
   });
 
-  it('blocks localhost hosted OAuth when native callback is unavailable', async () => {
+  it('blocks desktop OAuth when native callback is unavailable', async () => {
     vi.mocked(authCallback.prepareAuthRedirectUrl).mockResolvedValue(null);
 
     await expect(
       beginSupabaseOAuth({
         provider: 'github',
-        supabaseBaseUrl: 'http://127.0.0.1:54321',
-        requireNativeCallbackForLocalhost: true,
+        supabaseBaseUrl: 'https://project.supabase.co',
+        callbackMode: 'desktop',
       })
     ).rejects.toThrow(LOCAL_HOSTED_AUTH_MESSAGE);
 
     expect(createSupabaseOAuthUrl).not.toHaveBeenCalled();
     expect(externalUrl.openExternalUrl).not.toHaveBeenCalled();
+  });
+
+  it('allows browser OAuth fallback only when explicitly requested', async () => {
+    vi.mocked(authCallback.prepareAuthRedirectUrl).mockResolvedValue(null);
+
+    await beginSupabaseOAuth({
+      provider: 'github',
+      supabaseBaseUrl: 'https://project.supabase.co',
+      callbackMode: 'browser',
+    });
+
+    expect(createSupabaseOAuthUrl).toHaveBeenCalledWith(
+      'github',
+      undefined,
+      'https://project.supabase.co'
+    );
+    expect(externalUrl.openExternalUrl).toHaveBeenCalledWith(
+      'http://127.0.0.1:54321/auth/v1/authorize'
+    );
+  });
+
+  it('does not use the native callback listener in browser mode', async () => {
+    await beginSupabaseOAuth({
+      provider: 'github',
+      supabaseBaseUrl: 'https://project.supabase.co',
+      callbackMode: 'browser',
+    });
+
+    expect(authCallback.prepareAuthRedirectUrl).not.toHaveBeenCalled();
+    expect(createSupabaseOAuthUrl).toHaveBeenCalledWith(
+      'github',
+      undefined,
+      'https://project.supabase.co'
+    );
   });
 });

@@ -14,6 +14,39 @@ export interface AuthSessionSummary {
 
 export type SupabaseOAuthProvider = 'google' | 'github' | 'apple';
 
+function callbackParamGroups(callbackUrl: string): URLSearchParams[] {
+  const url = new URL(callbackUrl);
+  const groups = [url.searchParams];
+  const hash = url.hash.replace(/^#/, '');
+  if (!hash) return groups;
+
+  if (hash.startsWith('/')) {
+    groups.push(new URL(hash, url.origin).searchParams);
+  } else {
+    groups.push(new URLSearchParams(hash.startsWith('?') ? hash.slice(1) : hash));
+  }
+  return groups;
+}
+
+function firstCallbackParam(callbackUrl: string, name: string): string | null {
+  for (const params of callbackParamGroups(callbackUrl)) {
+    const value = params.get(name);
+    if (value) return value;
+  }
+  return null;
+}
+
+export function supabaseOAuthErrorMessage(callbackUrl: string): string | null {
+  const error = firstCallbackParam(callbackUrl, 'error');
+  const description = firstCallbackParam(callbackUrl, 'error_description');
+  const code = firstCallbackParam(callbackUrl, 'error_code');
+  if (!error && !description && !code) return null;
+
+  const detail = description || error || 'Supabase rejected the sign in callback.';
+  const suffix = [code, error].filter(Boolean).join(', ');
+  return suffix ? `Sign in failed: ${detail} (${suffix}).` : `Sign in failed: ${detail}.`;
+}
+
 export function supabaseConfigured(supabaseBaseUrl?: string): boolean {
   return Boolean(resolveSupabaseUrl(supabaseBaseUrl) && import.meta.env.VITE_SUPABASE_ANON_KEY);
 }
@@ -102,9 +135,11 @@ function normalizeSession(data: any): StoredAuthSession {
 }
 
 export async function exchangeSupabaseCode(callbackUrl: string): Promise<StoredAuthSession> {
-  const url = new URL(callbackUrl);
-  const code = url.searchParams.get('code');
-  const state = url.searchParams.get('state');
+  const callbackError = supabaseOAuthErrorMessage(callbackUrl);
+  if (callbackError) throw new Error(callbackError);
+
+  const code = firstCallbackParam(callbackUrl, 'code');
+  const state = firstCallbackParam(callbackUrl, 'state');
   const expectedState = sessionStorage.getItem(PKCE_STATE_KEY);
   const verifier = sessionStorage.getItem(PKCE_VERIFIER_KEY);
   if (!code || !verifier || (expectedState && state !== expectedState)) {
