@@ -264,6 +264,45 @@ describe('App startup — local mode', () => {
     expect(window.location.pathname).toBe('/add');
   });
 
+  it('keeps an explicit connect route open even with a saved profile', async () => {
+    window.history.pushState({}, '', '/connect');
+    vi.mocked(nativeCommands.checkServerRuntime).mockResolvedValue(true);
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve(
+            url.endsWith('/health')
+              ? {
+                  status: 'healthy',
+                  capabilities: [
+                    'local-queue',
+                    'single-voice',
+                    'multi-voice',
+                    'voices',
+                    'book-parse',
+                    'provider-models',
+                    'provider-credentials',
+                  ],
+                }
+              : { items: [], current_item: null, pending_count: 0, completed_count: 0, failed_count: 0 }
+          ),
+      })
+    );
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:45365/health',
+        expect.objectContaining({ headers: expect.any(Headers) })
+      );
+    });
+    expect(screen.getByRole('heading', { name: /connect to kenkui/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/connect');
+  });
+
   it('attaches to an already running compatible local runtime without spawning', async () => {
     vi.mocked(nativeCommands.checkServerRuntime).mockResolvedValue(true);
     mockFetch.mockImplementation((url: string) =>

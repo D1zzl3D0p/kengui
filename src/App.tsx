@@ -15,12 +15,17 @@ import AddJob from './pages/AddJob';
 
 const queryClient = new QueryClient();
 const APP_ROUTES = ['/dashboard', '/add', '/settings', '/voices', '/audiobooks'];
+const CONNECT_ROUTES = ['/connect', '/connecting'];
 const LOCAL_RUNTIME_ENABLED = import.meta.env.VITE_KENGUI_ENABLE_LOCAL !== 'false';
 
 function isAppRoute(pathname: string): boolean {
   return APP_ROUTES.some((route) =>
     pathname === route || pathname.startsWith(`${route}/`)
   );
+}
+
+function isConnectRoute(pathname: string): boolean {
+  return CONNECT_ROUTES.includes(pathname);
 }
 
 function AppRouter() {
@@ -47,13 +52,14 @@ function AppRouter() {
     connectionAttemptRef.current = attemptId;
     const isCurrentAttempt = () =>
       !cancelled && connectionAttemptRef.current === attemptId;
+    const startedOnConnect = isConnectRoute(window.location.pathname);
     const navigateToConnect = () => {
-      if (!isAppRoute(window.location.pathname)) {
+      if (!isAppRoute(window.location.pathname) && !isConnectRoute(window.location.pathname)) {
         navigate('/connect', { replace: true });
       }
     };
     const navigateAfterConnected = () => {
-      if (!isAppRoute(window.location.pathname)) {
+      if (!startedOnConnect && !isAppRoute(window.location.pathname)) {
         navigate('/dashboard', { replace: true });
       }
     };

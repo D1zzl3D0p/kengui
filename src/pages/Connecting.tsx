@@ -8,15 +8,14 @@ import { useConnectionStore, type ConnectionAuthMode, type ServerMode } from '..
 import { connectCurrentRuntime } from '../runtime/connectRuntime';
 import {
   clearAuthSession,
-  createSupabaseOAuthUrl,
   exchangeSupabaseCode,
   loadAuthSessionSummary,
-  supabaseConfigured,
   type AuthSessionSummary,
   type SupabaseOAuthProvider,
 } from '../auth/supabase';
-import { authCallback, deepLinks, externalUrl } from '../platform';
-import { isLocalhostUrl, normalizeHttpUrl, normalizeSupabaseBaseUrl } from '../lib/cloudUrls';
+import { beginSupabaseOAuth } from '../auth/oauthStart';
+import { deepLinks } from '../platform';
+import { normalizeHttpUrl, normalizeSupabaseBaseUrl } from '../lib/cloudUrls';
 
 const HOSTED_RUNTIME_ENABLED = import.meta.env.VITE_KENGUI_ENABLE_HOSTED === 'true';
 const LOCAL_RUNTIME_ENABLED = import.meta.env.VITE_KENGUI_ENABLE_LOCAL !== 'false';
@@ -114,25 +113,15 @@ export default function Connecting() {
     setAuthMessage(null);
     const supabaseBaseUrl =
       selectedMode === 'hosted' ? normalizeSupabaseBaseUrl(hostedUrl) : undefined;
-    if (!supabaseConfigured(supabaseBaseUrl)) {
-      setAuthMessage('Supabase auth is not configured for this build.');
-      return;
+    try {
+      await beginSupabaseOAuth({
+        provider,
+        supabaseBaseUrl,
+        requireNativeCallbackForLocalhost: selectedMode === 'hosted',
+      });
+    } catch (error) {
+      setAuthMessage(error instanceof Error ? error.message : 'Could not start sign in.');
     }
-    const redirectTo = await authCallback.prepareAuthRedirectUrl();
-    if (
-      !redirectTo &&
-      selectedMode === 'hosted' &&
-      supabaseBaseUrl &&
-      isLocalhostUrl(supabaseBaseUrl)
-    ) {
-      setAuthMessage(
-        'Local Kengui Cloud sign in requires the Tauri app. Launch with `rtk npm run tauri -- dev` and try again.'
-      );
-      return;
-    }
-    await externalUrl.openExternalUrl(
-      await createSupabaseOAuthUrl(provider, redirectTo ?? undefined, supabaseBaseUrl)
-    );
   }
 
   async function signOut() {

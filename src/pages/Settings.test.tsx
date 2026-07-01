@@ -20,11 +20,9 @@ import {
 import { useProviderModels } from '../hooks/useProviderModels';
 import {
   clearAuthSession,
-  createSupabaseOAuthUrl,
   loadAuthSessionSummary,
-  supabaseConfigured,
 } from '../auth/supabase';
-import { authCallback, externalUrl } from '../platform';
+import { beginSupabaseOAuth } from '../auth/oauthStart';
 
 vi.mock('../runtime/runtime', () => ({
   createRuntimeAdapter: vi.fn(),
@@ -55,10 +53,12 @@ vi.mock('../hooks/useProviderModels', () => ({
 
 vi.mock('../auth/supabase', () => ({
   clearAuthSession: vi.fn(),
-  createSupabaseOAuthUrl: vi.fn(),
   exchangeSupabaseCode: vi.fn(),
   loadAuthSessionSummary: vi.fn(),
-  supabaseConfigured: vi.fn(),
+}));
+
+vi.mock('../auth/oauthStart', () => ({
+  beginSupabaseOAuth: vi.fn(),
 }));
 
 const runtime = {
@@ -77,9 +77,8 @@ const mockUseProviderModels = useProviderModels as ReturnType<typeof vi.fn>;
 const mockSupportsProviderModels = supportsProviderModels as ReturnType<typeof vi.fn>;
 const mockSupportsProviderCredentials = supportsProviderCredentials as ReturnType<typeof vi.fn>;
 const mockLoadAuthSessionSummary = loadAuthSessionSummary as ReturnType<typeof vi.fn>;
-const mockCreateSupabaseOAuthUrl = createSupabaseOAuthUrl as ReturnType<typeof vi.fn>;
 const mockClearAuthSession = clearAuthSession as ReturnType<typeof vi.fn>;
-const mockSupabaseConfigured = supabaseConfigured as ReturnType<typeof vi.fn>;
+const mockBeginSupabaseOAuth = beginSupabaseOAuth as ReturnType<typeof vi.fn>;
 
 function renderSettings() {
   return render(
@@ -206,11 +205,8 @@ beforeEach(() => {
   mockDeleteProviderCredentials.mockResolvedValue(undefined);
   mockTestProviderCredentials.mockResolvedValue({ status: 'ok', message: 'Validated' });
   mockLoadAuthSessionSummary.mockResolvedValue(null);
-  mockCreateSupabaseOAuthUrl.mockResolvedValue('https://project.supabase.co/auth/v1/authorize');
   mockClearAuthSession.mockResolvedValue(undefined);
-  mockSupabaseConfigured.mockReturnValue(true);
-  vi.spyOn(authCallback, 'prepareAuthRedirectUrl').mockResolvedValue('http://127.0.0.1:49152/auth/callback');
-  vi.spyOn(externalUrl, 'openExternalUrl').mockResolvedValue(undefined);
+  mockBeginSupabaseOAuth.mockResolvedValue(undefined);
   Object.assign(navigator, {
     clipboard: {
       writeText: vi.fn().mockResolvedValue(undefined),
@@ -231,9 +227,9 @@ describe('Settings', () => {
     expect(screen.getByPlaceholderText(/http/i)).toBeInTheDocument();
   });
 
-  it('hides hosted cloud mode in the default desktop GitHub build', () => {
+  it('shows hosted cloud mode when hosted runtime is enabled', () => {
     renderSettings();
-    expect(screen.queryByLabelText('Kengui Cloud')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Kengui Cloud')).toBeInTheDocument();
   });
 
   it('renders cloud account controls with Google, GitHub, and Apple sign in', async () => {
@@ -248,14 +244,46 @@ describe('Settings', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /continue with github/i }));
 
-    expect(authCallback.prepareAuthRedirectUrl).toHaveBeenCalled();
-    expect(createSupabaseOAuthUrl).toHaveBeenCalledWith(
-      'github',
-      'http://127.0.0.1:49152/auth/callback'
+    expect(beginSupabaseOAuth).toHaveBeenCalledWith({
+      provider: 'github',
+      supabaseBaseUrl: 'http://127.0.0.1:54321',
+      requireNativeCallbackForLocalhost: true,
+    });
+  });
+
+  it('uses the active hosted URL when signing in from settings', async () => {
+    useConnectionStore.setState({
+      serverMode: 'hosted',
+      serverUrl: 'http://127.0.0.1:54321',
+      computeTarget: 'kenkui-cloud',
+    });
+    renderSettings();
+
+    expect(await screen.findByRole('heading', { name: /cloud account/i })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /continue with github/i }));
+
+    expect(beginSupabaseOAuth).toHaveBeenCalledWith({
+      provider: 'github',
+      supabaseBaseUrl: 'http://127.0.0.1:54321',
+      requireNativeCallbackForLocalhost: true,
+    });
+  });
+
+  it('shows local hosted auth errors from settings without opening browser fallback', async () => {
+    mockBeginSupabaseOAuth.mockRejectedValue(
+      new Error('Local Kengui Cloud sign in requires the Tauri app. Launch with `rtk npm run tauri -- dev` and try again.')
     );
-    expect(externalUrl.openExternalUrl).toHaveBeenCalledWith(
-      'https://project.supabase.co/auth/v1/authorize'
-    );
+    useConnectionStore.setState({
+      serverMode: 'hosted',
+      serverUrl: 'http://127.0.0.1:54321',
+      computeTarget: 'kenkui-cloud',
+    });
+    renderSettings();
+
+    expect(await screen.findByRole('heading', { name: /cloud account/i })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /continue with github/i }));
+
+    expect(await screen.findByText(/local kengui cloud sign in requires the tauri app/i)).toBeInTheDocument();
   });
 
   it('shows signed in cloud account state and supports sign out', async () => {

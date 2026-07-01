@@ -28,14 +28,13 @@ import { withCurrentOption } from '../lib/selectOptions';
 import { useProviderModels } from '../hooks/useProviderModels';
 import {
   clearAuthSession,
-  createSupabaseOAuthUrl,
   exchangeSupabaseCode,
   loadAuthSessionSummary,
-  supabaseConfigured,
   type AuthSessionSummary,
   type SupabaseOAuthProvider,
 } from '../auth/supabase';
-import { authCallback, deepLinks, externalUrl } from '../platform';
+import { beginSupabaseOAuth } from '../auth/oauthStart';
+import { deepLinks } from '../platform';
 import { normalizeSupabaseBaseUrl } from '../lib/cloudUrls';
 
 type LogOrder = 'newest' | 'oldest';
@@ -335,16 +334,16 @@ export default function Settings() {
 
   async function beginOAuth(provider: SupabaseOAuthProvider) {
     setAuthMessage(null);
-    if (!supabaseConfigured()) {
-      setAuthMessage('Supabase auth is not configured for this build.');
-      return;
-    }
     setAuthLoading(true);
     try {
-      const redirectTo = await authCallback.prepareAuthRedirectUrl();
-      await externalUrl.openExternalUrl(
-        await createSupabaseOAuthUrl(provider, redirectTo ?? undefined)
+      const supabaseBaseUrl = normalizeSupabaseBaseUrl(
+        serverMode === 'hosted' ? serverUrl : HOSTED_RUNTIME_URL
       );
+      await beginSupabaseOAuth({
+        provider,
+        supabaseBaseUrl,
+        requireNativeCallbackForLocalhost: true,
+      });
     } catch (error) {
       setAuthMessage(error instanceof Error ? error.message : 'Could not start sign in.');
     } finally {
