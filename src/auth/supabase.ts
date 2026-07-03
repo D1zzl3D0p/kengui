@@ -3,8 +3,8 @@ import { useConnectionStore } from '../store/connection';
 import { normalizeSupabaseBaseUrl } from '../lib/cloudUrls';
 
 const PKCE_VERIFIER_KEY = 'kengui.pkce.verifier';
-const PKCE_STATE_KEY = 'kengui.pkce.state';
 const PKCE_SUPABASE_URL_KEY = 'kengui.pkce.supabaseUrl';
+const TOKEN_REFRESH_SKEW_SECONDS = 60;
 
 export interface AuthSessionSummary {
   email: string | null;
@@ -65,6 +65,14 @@ function supabaseUrl(override?: string): string {
   return url;
 }
 
+export function supabaseProviderCallbackUrl(supabaseBaseUrl?: string): string {
+  const override = import.meta.env.VITE_SUPABASE_PROVIDER_CALLBACK_URL;
+  if (override) return override.replace(/\/$/, '');
+
+  const url = new URL(supabaseUrl(supabaseBaseUrl));
+  return `${url.origin}/auth/v1/callback`;
+}
+
 function supabaseAnonKey(): string {
   const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
   if (!key) throw new Error('Supabase anon key is not configured.');
@@ -103,10 +111,8 @@ export async function createSupabaseOAuthUrl(
   supabaseBaseUrl?: string
 ): Promise<string> {
   const verifier = randomBase64Url(48);
-  const state = randomBase64Url(24);
   const baseUrl = supabaseUrl(supabaseBaseUrl);
   sessionStorage.setItem(PKCE_VERIFIER_KEY, verifier);
-  sessionStorage.setItem(PKCE_STATE_KEY, state);
   sessionStorage.setItem(PKCE_SUPABASE_URL_KEY, baseUrl);
 
   const params = new URLSearchParams({
@@ -114,7 +120,6 @@ export async function createSupabaseOAuthUrl(
     redirect_to: redirectUrl(redirectTo),
     code_challenge: await sha256Base64Url(verifier),
     code_challenge_method: 'S256',
-    state,
   });
   return `${baseUrl}/auth/v1/authorize?${params}`;
 }
@@ -139,10 +144,8 @@ export async function exchangeSupabaseCode(callbackUrl: string): Promise<StoredA
   if (callbackError) throw new Error(callbackError);
 
   const code = firstCallbackParam(callbackUrl, 'code');
-  const state = firstCallbackParam(callbackUrl, 'state');
-  const expectedState = sessionStorage.getItem(PKCE_STATE_KEY);
   const verifier = sessionStorage.getItem(PKCE_VERIFIER_KEY);
-  if (!code || !verifier || (expectedState && state !== expectedState)) {
+  if (!code || !verifier) {
     throw new Error('Could not complete sign in. Start the login again.');
   }
 
@@ -165,7 +168,6 @@ export async function exchangeSupabaseCode(callbackUrl: string): Promise<StoredA
   const session = normalizeSession(await response.json());
   await secureStore.saveSession(session);
   sessionStorage.removeItem(PKCE_VERIFIER_KEY);
-  sessionStorage.removeItem(PKCE_STATE_KEY);
   sessionStorage.removeItem(PKCE_SUPABASE_URL_KEY);
   return session;
 }
@@ -181,7 +183,14 @@ export async function loadAuthSessionSummary(): Promise<AuthSessionSummary | nul
 }
 
 export async function getAccessToken(): Promise<string | null> {
-  return (await secureStore.loadSession())?.accessToken ?? null;
+  const session = await secureStore.loadSession();
+  if (!session) return null;
+  const expiresAt = Number.isFinite(session.expiresAt) ? session.expiresAt : 0;
+  const refreshAt = Math.floor(Date.now() / 1000) + TOKEN_REFRESH_SKEW_SECONDS;
+  if (expiresAt <= refreshAt) {
+    return (await refreshSupabaseSession())?.accessToken ?? null;
+  }
+  return session.accessToken;
 }
 
 export async function refreshSupabaseSession(): Promise<StoredAuthSession | null> {

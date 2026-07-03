@@ -1,6 +1,7 @@
 import {
   createSupabaseOAuthUrl,
   supabaseConfigured,
+  supabaseProviderCallbackUrl,
   type SupabaseOAuthProvider,
 } from './supabase';
 import { authCallback, externalUrl } from '../platform';
@@ -37,6 +38,7 @@ export async function beginSupabaseOAuth(options: {
     console.debug('Starting Supabase OAuth', {
       provider,
       supabaseOrigin: parsed.origin,
+      providerCallbackUrl: supabaseProviderCallbackUrl(supabaseBaseUrl),
       callbackMode,
       redirectTo: parsed.searchParams.get('redirect_to') ?? 'browser-origin',
     });

@@ -38,6 +38,11 @@ See [`docs/desktop-distribution.md`](docs/desktop-distribution.md) for local
 desktop bundle builds, the GitHub release workflow, signing/notarization
 secrets, and the app-store readiness checklist.
 
+## Cloud Auth
+
+See [`docs/cloud-auth.md`](docs/cloud-auth.md) for Supabase and GitHub OAuth
+callback setup.
+
 ## Licensing
 
 Kengui is MIT licensed. The commercial boundary is the operated hosted compute
