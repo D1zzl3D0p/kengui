@@ -174,7 +174,7 @@ export async function pollCloudAnalysis(
       percent: response.progress?.percent ?? 0,
       message: response.progress?.message ?? response.status,
     });
-    if (response.status === 'completed' || response.status === 'failed') {
+    if (response.status !== 'queued' && response.status !== 'running') {
       return response;
     }
     await new Promise<void>((resolve) => setTimeout(resolve, intervalMs));
