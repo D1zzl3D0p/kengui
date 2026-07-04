@@ -3,7 +3,9 @@ import { Mic2, RefreshCw, UsersRound } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { ModelCombobox } from '../../components/ModelCombobox';
 import { analyzeBook, fetchAnalysisCaches, type AnalysisCacheCandidate, type AnalysisCharacter, type AnalysisResult } from '../../api/books';
+import { analyzeBookCloud, mapCloudAnalysisToCharacters, pollCloudAnalysis, type CloudAnalysisProgressView } from '../../api/cloudBooks';
 import { fetchTask, type TaskResponse } from '../../api/tasks';
+import { useConnectionStore } from '../../store/connection';
 import { fetchMultivoiceStatus, type MultivoiceStatusResponse } from '../../api/status';
 import { auditionAudioUrl, auditionVoice, fetchVoices, suggestCast, type AudioPreviewResult, type VoiceResponse } from '../../api/voices';
 import { fetchConfig } from '../../api/config';
@@ -75,6 +77,8 @@ interface Step3Data {
 
 interface Props {
   filePath: string;
+  /** Required in hosted mode (cloud analysis). Provided by the wizard via book.book_id. */
+  bookId?: string;
   onBack: () => void;
   onNext: (data: Step3Data) => void;
 }
@@ -114,7 +118,8 @@ type AuditionView = {
   audioUrl?: string;
 };
 
-export default function Step3Voice({ filePath, onBack, onNext }: Props) {
+export default function Step3Voice({ filePath, bookId, onBack, onNext }: Props) {
+  const isHosted = useConnectionStore((s) => s.serverMode === 'hosted');
   const [narrationMode, setNarrationMode] = useState<NarrationMode>('single');
   const [voices, setVoices] = useState<VoiceResponse[]>([]);
   const [selectedVoice, setSelectedVoice] = useState<string>('');
@@ -138,6 +143,7 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
   const [newSeriesName, setNewSeriesName] = useState('');
   const [seriesCreating, setSeriesCreating] = useState(false);
   const [seriesError, setSeriesError] = useState<string | null>(null);
+  const [cloudProgress, setCloudProgress] = useState<CloudAnalysisProgressView | null>(null);
   const {
     models: nlpModelOptions,
     loading: nlpModelsLoading,
@@ -184,6 +190,7 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
 
   useEffect(() => {
     if (narrationMode !== 'multi') return;
+    if (isHosted) return; // cache endpoint not available in hosted mode
     setCacheLoading(true);
     fetchAnalysisCaches({ ebook_path: filePath })
       .then((data) => {
@@ -195,7 +202,7 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
         setSelectedCacheId('');
       })
       .finally(() => setCacheLoading(false));
-  }, [filePath, narrationMode]);
+  }, [filePath, narrationMode, isHosted]);
 
   useEffect(() => {
     if (narrationMode !== 'multi') return;
@@ -241,6 +248,52 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
     setError(null);
     setCastWarnings([]);
     setAnalysisResult(null);
+
+    if (isHosted) {
+      if (!bookId) {
+        setError('Book ID is missing — cannot run cloud analysis. Please restart the wizard.');
+        setAnalyzing(false);
+        return;
+      }
+      setCloudProgress(null);
+      try {
+        const started = await analyzeBookCloud(bookId, {
+          nlp_provider: requestProvider,
+          nlp_model: requestModel,
+          discovery_method: cacheCandidate?.method || discoveryMethod,
+          attribution_provider: requestProvider,
+          attribution_model: requestModel,
+        });
+        const completed = await pollCloudAnalysis(started.invocation_id, setCloudProgress);
+        if (completed.status === 'failed' || !completed.result) {
+          throw new Error(completed.error_message ?? 'Cloud analysis failed.');
+        }
+        const characters = mapCloudAnalysisToCharacters(completed.result);
+        // Build an AnalysisResult-compatible object for the cast UI.
+        const syntheticResult: AnalysisResult = {
+          characters,
+          book_hash: '',
+          annotated_chapters_path: null as unknown as string,
+          roster_cache_path: null,
+          nlp_provider: requestProvider,
+          nlp_model: requestModel,
+          attribution_provider: requestProvider,
+          attribution_model: requestModel,
+          cache_status: 'cloud',
+        };
+        setAnalysisResult(syntheticResult);
+        const suggested = await suggestCast(characters, excludedVoiceNames, narratorVoice);
+        setCastWarnings(suggested.warnings);
+        setSpeakerVoices({ ...suggested.speaker_voices, NARRATOR: narratorVoice });
+      } catch (error) {
+        setError(error instanceof Error ? error.message : 'Cloud analysis failed.');
+      } finally {
+        setAnalyzing(false);
+      }
+      return;
+    }
+
+    // Local server path
     try {
       const task = await analyzeBook({
         ebook_path: filePath,
@@ -348,7 +401,7 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
       nlpModel,
       discoveryMethod,
       speakerVoices: { ...speakerVoices, NARRATOR: narratorVoice },
-      annotatedChaptersPath: analysisResult.annotated_chapters_path,
+      annotatedChaptersPath: analysisResult.annotated_chapters_path ?? null,
       rosterCachePath: analysisResult.roster_cache_path,
       characters: analysisResult.characters,
       seriesSlug: selectedSeriesSlug || null,
@@ -614,13 +667,22 @@ export default function Step3Voice({ filePath, onBack, onNext }: Props) {
             </Button>
           </div>
 
-          {analysisTask && (
+          {analysisTask && !isHosted && (
             <p className="rounded-md border bg-background/45 px-3 py-2 text-sm text-muted-foreground">
               {analysisTask.message?.toLowerCase().includes('attribut')
                 ? '✦ Attribution'
                 : '✦ Character discovery'}{' '}
               — {analysisTask.status} {analysisTask.progress}%
               {analysisTask.message ? ` · ${analysisTask.message}` : ''}
+            </p>
+          )}
+          {cloudProgress && isHosted && (
+            <p className="rounded-md border bg-background/45 px-3 py-2 text-sm text-muted-foreground">
+              {cloudProgress.message?.toLowerCase().includes('attribut')
+                ? '✦ Attribution'
+                : '✦ Character discovery'}{' '}
+              — {cloudProgress.status} {cloudProgress.percent}%
+              {cloudProgress.message ? ` · ${cloudProgress.message}` : ''}
             </p>
           )}
 

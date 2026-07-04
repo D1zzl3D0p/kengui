@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { nativeCommands } from '../platform';
 import { cloudRequest, CloudApiError } from './cloudClient';
-import { parseBookCloud, filterChaptersCloud } from './cloudBooks';
+import {
+  parseBookCloud,
+  filterChaptersCloud,
+  analyzeBookCloud,
+  getBookAnalysisCloud,
+  mapCloudAnalysisToCharacters,
+  pollCloudAnalysis,
+} from './cloudBooks';
 
 vi.mock('../platform', () => ({
   nativeCommands: {
@@ -122,5 +129,129 @@ describe('filterChaptersCloud', () => {
       body: JSON.stringify({ book_id: 'book-123', chapter_selection: selection }),
     }));
     expect(result).toEqual(filterResponse);
+  });
+});
+
+describe('analyzeBookCloud', () => {
+  it('posts analyze-book with book_id and options, returns invocation_id', async () => {
+    vi.mocked(cloudRequest).mockResolvedValueOnce({
+      invocation_id: 'inv-abc',
+      status: 'queued',
+    });
+
+    const result = await analyzeBookCloud('book-123', {
+      nlp_provider: 'openai',
+      nlp_model: 'gpt-4o',
+    });
+
+    expect(cloudRequest).toHaveBeenCalledWith('analyze-book', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ book_id: 'book-123', options: { nlp_provider: 'openai', nlp_model: 'gpt-4o' } }),
+    }));
+    expect(result).toEqual({ invocation_id: 'inv-abc', status: 'queued' });
+  });
+
+  it('surfaces a clear error on 409 analysis_already_active', async () => {
+    vi.mocked(cloudRequest).mockRejectedValueOnce(
+      new CloudApiError(409, 'analysis_already_active')
+    );
+
+    await expect(analyzeBookCloud('book-123')).rejects.toMatchObject({
+      status: 409,
+      message: 'analysis_already_active',
+    });
+  });
+});
+
+describe('getBookAnalysisCloud', () => {
+  it('posts get-book-analysis with invocation_id and returns response', async () => {
+    const mockResponse = {
+      status: 'running',
+      progress: { percent: 42, message: 'Discovering characters' },
+    };
+    vi.mocked(cloudRequest).mockResolvedValueOnce(mockResponse);
+
+    const result = await getBookAnalysisCloud('inv-abc');
+
+    expect(cloudRequest).toHaveBeenCalledWith('get-book-analysis', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ invocation_id: 'inv-abc' }),
+    }));
+    expect(result).toEqual(mockResponse);
+  });
+});
+
+describe('mapCloudAnalysisToCharacters', () => {
+  it('maps cloud result characters to MappedCharacter shape', () => {
+    const result = mapCloudAnalysisToCharacters({
+      characters: [
+        { character_id: 'c1', display_name: 'Alice', quote_count: 10, mention_count: 20, gender_pronoun: 'she/her' },
+        { character_id: 'c2', display_name: 'Bob' },
+      ],
+    });
+
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({
+      character_id: 'c1',
+      display_name: 'Alice',
+      quote_count: 10,
+      mention_count: 20,
+      gender_pronoun: 'she/her',
+    });
+    // Missing fields get defaults
+    expect(result[1]).toEqual({
+      character_id: 'c2',
+      display_name: 'Bob',
+      quote_count: 0,
+      mention_count: 0,
+      gender_pronoun: '',
+    });
+  });
+
+  it('throws if characters is missing', () => {
+    expect(() => mapCloudAnalysisToCharacters({})).toThrow('character roster');
+  });
+});
+
+describe('pollCloudAnalysis', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  it('polls until completed and calls onUpdate each tick', async () => {
+    vi.mocked(cloudRequest)
+      .mockResolvedValueOnce({ status: 'queued', progress: { percent: 0, message: 'Queued' } })
+      .mockResolvedValueOnce({ status: 'running', progress: { percent: 50, message: 'Halfway' } })
+      .mockResolvedValueOnce({
+        status: 'completed',
+        progress: { percent: 100, message: 'Done' },
+        result: { characters: [{ character_id: 'c1', display_name: 'Alice' }] },
+      });
+
+    const updates: Array<{ status: string; percent: number }> = [];
+    const promise = pollCloudAnalysis('inv-abc', (p) => updates.push(p), 0);
+
+    // Drain microtasks for all three ticks
+    await vi.runAllTimersAsync();
+    const completed = await promise;
+
+    expect(completed.status).toBe('completed');
+    expect(updates).toHaveLength(3);
+    expect(updates[1]).toMatchObject({ status: 'running', percent: 50, message: 'Halfway' });
+  });
+
+  it('stops polling on failed status', async () => {
+    vi.mocked(cloudRequest).mockResolvedValueOnce({
+      status: 'failed',
+      error_message: 'NLP error',
+    });
+
+    const promise = pollCloudAnalysis('inv-fail', () => {}, 0);
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.status).toBe('failed');
+    expect(result.error_message).toBe('NLP error');
+    expect(cloudRequest).toHaveBeenCalledTimes(1);
   });
 });

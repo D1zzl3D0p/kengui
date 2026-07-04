@@ -94,6 +94,7 @@ export default function AddJob() {
         {step === 3 && (
           <Step3Voice
             filePath={_state.filePath!}
+            {...(_state.book?.book_id ? { bookId: _state.book.book_id } : {})}
             onBack={() => setStep(2)}
             onNext={(data) => {
               setState((s) => ({ ...s, ...data }));
