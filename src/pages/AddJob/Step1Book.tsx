@@ -14,6 +14,17 @@ interface Props {
   onNext: (data: Step1Data) => void;
 }
 
+function extractDetail(text: string): string | null {
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    const value = parsed.detail ?? parsed.message;
+    if (typeof value === 'string' && value) return value;
+  } catch {
+    // not JSON
+  }
+  return text.length > 0 && text.length < 300 ? text : null;
+}
+
 function metadataString(metadata: Record<string, unknown>, key: string): string | null {
   const value = metadata[key];
   return typeof value === 'string' && value.trim() ? value : null;
@@ -45,8 +56,9 @@ export default function Step1Book({ onNext }: Props) {
     try {
       const parsed = await parseBook(selected);
       setBook(parsed);
-    } catch {
-      setError('Failed to parse ebook. Make sure the file is a valid EPUB, MOBI, AZW, or FB2.');
+    } catch (err) {
+      const detail = err instanceof Error && err.message ? extractDetail(err.message) : null;
+      setError(detail ?? 'Failed to parse ebook. Make sure the file is a valid EPUB, MOBI, AZW, or FB2.');
     } finally {
       setLoading(false);
     }

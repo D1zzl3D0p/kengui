@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 import * as booksApi from '../../api/books';
 import { pickBookFile } from '../../platform';
 import Step1Book from './Step1Book';
+import { ApiError } from '../../api/client';
 
 vi.mock('../../platform', () => ({
   pickBookFile: vi.fn(),
@@ -79,5 +80,75 @@ describe('Step1Book', () => {
 
     const cover = await screen.findByRole('img', { name: /cover for dune/i });
     expect(cover).toHaveAttribute('src', 'data:image/png;base64,iVBORw0KGgo=');
+  });
+
+  it('surfaces parse error detail from JSON error message', async () => {
+    vi.mocked(pickBookFile).mockResolvedValue('/path/to/book.txt');
+    vi.mocked(booksApi.parseBook).mockRejectedValue(
+      new ApiError(422, '{"detail":"Unsupported format: .txt"}')
+    );
+
+    render(<Step1Book onNext={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /choose file/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Unsupported format: \.txt/)).toBeInTheDocument();
+    });
+  });
+
+  it('falls back to generic message when error has no message', async () => {
+    vi.mocked(pickBookFile).mockResolvedValue('/path/to/book.epub');
+    vi.mocked(booksApi.parseBook).mockRejectedValue(new Error());
+
+    render(<Step1Book onNext={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /choose file/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to parse ebook/)).toBeInTheDocument();
+    });
+  });
+
+  it('extracts error message when not JSON', async () => {
+    vi.mocked(pickBookFile).mockResolvedValue('/path/to/book.epub');
+    vi.mocked(booksApi.parseBook).mockRejectedValue(new ApiError(400, 'File is corrupted'));
+
+    render(<Step1Book onNext={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /choose file/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/File is corrupted/)).toBeInTheDocument();
+    });
+  });
+
+  it('uses message field when detail is not present', async () => {
+    vi.mocked(pickBookFile).mockResolvedValue('/path/to/book.epub');
+    vi.mocked(booksApi.parseBook).mockRejectedValue(
+      new ApiError(400, '{"message":"Invalid book format","error":"parse_failed"}')
+    );
+
+    render(<Step1Book onNext={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /choose file/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Invalid book format/)).toBeInTheDocument();
+    });
+  });
+
+  it('shows generic message for very long error text', async () => {
+    vi.mocked(pickBookFile).mockResolvedValue('/path/to/book.epub');
+    const longText = 'a'.repeat(500);
+    vi.mocked(booksApi.parseBook).mockRejectedValue(new ApiError(400, longText));
+
+    render(<Step1Book onNext={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /choose file/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to parse ebook/)).toBeInTheDocument();
+    });
   });
 });
