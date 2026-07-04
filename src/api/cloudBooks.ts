@@ -77,6 +77,19 @@ interface UploadBookResponse {
   source_key?: string;
 }
 
+interface ConfirmBookUploadResponse {
+  book_id: string;
+  status: 'parsed' | 'parsing';
+  book?: BookParseResponse;
+}
+
+interface GetBookResponse {
+  book_id: string;
+  status: 'awaiting_upload' | 'uploaded' | 'parsing' | 'parsed' | 'parse_failed';
+  book?: BookParseResponse;
+  error_message?: string;
+}
+
 export async function parseBookCloud(
   ebookPath: string
 ): Promise<BookParseResponse & { book_id: string }> {
@@ -98,7 +111,7 @@ export async function parseBookCloud(
     return { ...uploadBook.book, book_id: uploadBook.book_id };
   }
 
-  // Not a dedup hit — PUT the file then parse
+  // Not a dedup hit — PUT the file then confirm
   if (!uploadBook.upload_url) {
     throw new Error('Cloud upload-book response missing upload_url.');
   }
@@ -109,12 +122,38 @@ export async function parseBookCloud(
     contentType: stat.contentType,
   });
 
-  const parsed = await cloudRequest<BookParseResponse>('parse-book', {
+  const confirm = await cloudRequest<ConfirmBookUploadResponse>('confirm-book-upload', {
     method: 'POST',
     body: JSON.stringify({ book_id: uploadBook.book_id }),
   });
 
-  return { ...parsed, book_id: uploadBook.book_id };
+  if (confirm.status === 'parsed' && confirm.book) {
+    return { ...confirm.book, book_id: confirm.book_id };
+  }
+
+  // 202 parsing — poll get-book until parsed or terminal failure
+  const timeoutMs = 120_000;
+  const intervalMs = 1_000;
+  const deadline = Date.now() + timeoutMs;
+
+  for (;;) {
+    if (Date.now() >= deadline) {
+      throw new Error('Book parsing timed out after 120 seconds.');
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, intervalMs));
+
+    const poll = await cloudRequest<GetBookResponse>('get-book', {
+      method: 'POST',
+      body: JSON.stringify({ book_id: uploadBook.book_id }),
+    });
+
+    if (poll.status === 'parsed' && poll.book) {
+      return { ...poll.book, book_id: poll.book_id };
+    }
+    if (poll.status === 'parse_failed' || poll.status === 'uploaded') {
+      throw new Error(poll.error_message ?? 'Book parsing failed.');
+    }
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────

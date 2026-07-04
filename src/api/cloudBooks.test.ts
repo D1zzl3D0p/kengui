@@ -71,7 +71,7 @@ describe('parseBookCloud', () => {
     expect(cloudRequest).toHaveBeenCalledTimes(1);
   });
 
-  it('uploads file and calls parse-book on non-dedup path', async () => {
+  it('uploads file and returns immediately on confirm 200 parsed', async () => {
     vi.mocked(cloudRequest)
       .mockResolvedValueOnce({
         book_id: 'book-456',
@@ -79,7 +79,11 @@ describe('parseBookCloud', () => {
         upload_url: 'https://storage.example/upload?sig=abc',
         source_key: 'books/book-456.epub',
       })
-      .mockResolvedValueOnce(mockBook);
+      .mockResolvedValueOnce({
+        book_id: 'book-456',
+        status: 'parsed',
+        book: mockBook,
+      });
 
     const result = await parseBookCloud('/books/great.epub');
 
@@ -88,26 +92,75 @@ describe('parseBookCloud', () => {
       url: 'https://storage.example/upload?sig=abc',
       contentType: 'application/epub+zip',
     });
-    expect(cloudRequest).toHaveBeenCalledWith('parse-book', expect.objectContaining({
+    expect(cloudRequest).toHaveBeenCalledWith('confirm-book-upload', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({ book_id: 'book-456' }),
     }));
+    expect(cloudRequest).toHaveBeenCalledTimes(2);
     expect(result).toEqual({ ...mockBook, book_id: 'book-456' });
   });
 
-  it('propagates CloudApiError from parse-book (422)', async () => {
+  it('polls get-book after 202 and resolves when parsed', async () => {
+    vi.useFakeTimers();
+    vi.mocked(cloudRequest)
+      .mockResolvedValueOnce({
+        book_id: 'book-456',
+        status: 'awaiting_upload',
+        upload_url: 'https://storage.example/upload?sig=abc',
+      })
+      .mockResolvedValueOnce({ book_id: 'book-456', status: 'parsing' })
+      .mockResolvedValueOnce({ book_id: 'book-456', status: 'parsing' })
+      .mockResolvedValueOnce({ book_id: 'book-456', status: 'parsed', book: mockBook });
+
+    const promise = parseBookCloud('/books/great.epub');
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result).toEqual({ ...mockBook, book_id: 'book-456' });
+    expect(cloudRequest).toHaveBeenCalledWith('get-book', expect.objectContaining({
+      body: JSON.stringify({ book_id: 'book-456' }),
+    }));
+    vi.useRealTimers();
+  });
+
+  it('rejects with server error_message when get-book returns parse_failed', async () => {
+    vi.useFakeTimers();
     vi.mocked(cloudRequest)
       .mockResolvedValueOnce({
         book_id: 'book-789',
         status: 'awaiting_upload',
         upload_url: 'https://storage.example/upload?sig=abc',
       })
-      .mockRejectedValueOnce(new CloudApiError(422, 'Parse failed: unsupported format'));
+      .mockResolvedValueOnce({ book_id: 'book-789', status: 'parsing' })
+      .mockResolvedValueOnce({
+        book_id: 'book-789',
+        status: 'parse_failed',
+        error_message: 'Unsupported DRM format',
+      });
 
-    await expect(parseBookCloud('/books/great.epub')).rejects.toMatchObject({
-      status: 422,
-      message: 'Parse failed: unsupported format',
-    });
+    const promise = parseBookCloud('/books/great.epub').catch((e) => { throw e; });
+    const assertion = expect(promise).rejects.toThrow('Unsupported DRM format');
+    await vi.runAllTimersAsync();
+    await assertion;
+    vi.useRealTimers();
+  });
+
+  it('rejects with timeout error after 120 seconds', async () => {
+    vi.useFakeTimers();
+    vi.mocked(cloudRequest)
+      .mockResolvedValueOnce({
+        book_id: 'book-timeout',
+        status: 'awaiting_upload',
+        upload_url: 'https://storage.example/upload?sig=abc',
+      });
+    // Always return parsing so it never resolves naturally
+    vi.mocked(cloudRequest).mockResolvedValue({ book_id: 'book-timeout', status: 'parsing' });
+
+    const promise = parseBookCloud('/books/great.epub');
+    const assertion = expect(promise).rejects.toThrow('timed out after 120 seconds');
+    await vi.advanceTimersByTimeAsync(121_000);
+    await assertion;
+    vi.useRealTimers();
   });
 });
 
