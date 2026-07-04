@@ -2034,9 +2034,11 @@ dependencies = [
 name = "kengui"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

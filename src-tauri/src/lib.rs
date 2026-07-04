@@ -9,6 +9,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use reqwest::header::CONTENT_TYPE;
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 #[cfg(unix)]
@@ -481,6 +482,14 @@ async fn file_stat(path: String) -> Result<NativeFileStat, String> {
         byte_size: metadata.len(),
         content_type: content_type_for_path(&path_buf),
     })
+}
+
+#[tauri::command]
+async fn file_sha256(path: String) -> Result<String, String> {
+    let bytes =
+        std::fs::read(&path).map_err(|e| format!("Failed to read file for sha256: {e}"))?;
+    let digest = Sha256::digest(&bytes);
+    Ok(hex::encode(digest))
 }
 
 #[tauri::command]
@@ -1006,6 +1015,7 @@ pub fn run() {
             server_status,
             open_output_folder,
             file_stat,
+            file_sha256,
             signed_upload_file,
             signed_upload_text,
             signed_download_file,

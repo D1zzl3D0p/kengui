@@ -1,4 +1,6 @@
 import { apiRequest } from './client';
+import { useConnectionStore } from '../store/connection';
+import { parseBookCloud, filterChaptersCloud } from './cloudBooks';
 import type { TaskResponse } from './tasks';
 
 export interface ChapterSummary {
@@ -16,6 +18,7 @@ export interface BookParseResponse {
   chapters: ChapterSummary[];
   total_chapters: number;
   total_word_count: number;
+  book_id?: string;
 }
 
 export type ChapterPreset =
@@ -82,20 +85,31 @@ export interface BookAnalyzeRequest {
   use_cache?: boolean;
 }
 
-export const parseBook = (ebook_path: string) =>
-  apiRequest<BookParseResponse>('/books/parse', {
-    method: 'POST',
-    body: JSON.stringify({ ebook_path }),
-  });
+export const parseBook = (ebook_path: string): Promise<BookParseResponse> =>
+  useConnectionStore.getState().serverMode === 'hosted'
+    ? parseBookCloud(ebook_path)
+    : apiRequest<BookParseResponse>('/books/parse', {
+        method: 'POST',
+        body: JSON.stringify({ ebook_path }),
+      });
 
-export const filterChapters = (book_hash: string, preset: ChapterPreset) =>
-  apiRequest<ChapterFilterResponse>('/books/chapters/filter', {
+export const filterChapters = (
+  book_hash: string,
+  preset: ChapterPreset,
+  book_id?: string
+): Promise<ChapterFilterResponse> => {
+  if (useConnectionStore.getState().serverMode === 'hosted') {
+    if (!book_id) return Promise.reject(new Error('book_id is required for filterChapters in hosted mode.'));
+    return filterChaptersCloud(book_id, { preset, included: [], excluded: [] });
+  }
+  return apiRequest<ChapterFilterResponse>('/books/chapters/filter', {
     method: 'POST',
     body: JSON.stringify({
       book_hash,
       chapter_selection: { preset, included: [], excluded: [] },
     }),
   });
+};
 
 export const analyzeBook = (request: BookAnalyzeRequest) =>
   apiRequest<TaskResponse<AnalysisResult>>('/books/analyze', {

@@ -34,7 +34,7 @@ export default function Step2Chapters({ book, onBack, onNext }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const data = await filterChapters(book.book_hash, selectedPreset);
+      const data = await filterChapters(book.book_hash, selectedPreset, book.book_id);
       setIncludedIndices(new Set(data.included_indices));
       setPreset(selectedPreset);
       setSelectionPreset(selectedPreset);

@@ -58,7 +58,7 @@ describe('Step2Chapters', () => {
       expect(screen.getByLabelText('Chapter 2')).toBeChecked();
     });
 
-    expect(mockFilterChapters).toHaveBeenCalledWith('abc123', 'content-only');
+    expect(mockFilterChapters).toHaveBeenCalledWith('abc123', 'content-only', undefined);
   });
 
   it('changing the preset reapplies the bulk chapter selection', async () => {
@@ -76,7 +76,7 @@ describe('Step2Chapters', () => {
     await userEvent.selectOptions(screen.getByRole('combobox'), 'none');
 
     await waitFor(() => {
-      expect(mockFilterChapters).toHaveBeenCalledWith('abc123', 'none');
+      expect(mockFilterChapters).toHaveBeenCalledWith('abc123', 'none', undefined);
       expect(screen.getByLabelText('Front Matter')).toBeChecked();
       expect(screen.getByLabelText('Chapter 1')).toBeChecked();
       expect(screen.getByLabelText('Chapter 2')).toBeChecked();

@@ -10,6 +10,7 @@ export interface NativeRuntimeCommands {
   serverLogs: () => Promise<string[]>;
   openOutputFolder: (path: string) => Promise<void>;
   fileStat: (path: string) => Promise<NativeFileStat>;
+  fileSha256: (path: string) => Promise<string>;
   signedUploadFile: (args: SignedUploadFileArgs) => Promise<void>;
   signedUploadText: (args: SignedUploadTextArgs) => Promise<void>;
   signedDownloadFile: (args: SignedDownloadFileArgs) => Promise<void>;
@@ -86,6 +87,7 @@ export const nativeCommands: NativeRuntimeCommands = {
     byteSize: 0,
     contentType: 'application/octet-stream',
   }, { path }),
+  fileSha256: (path) => invokeOrBrowserFallback('file_sha256', '', { path }),
   signedUploadFile: (args) =>
     invokeOrBrowserFallback('signed_upload_file', undefined, { ...args }),
   signedUploadText: async ({ text, url, contentType }) => {
