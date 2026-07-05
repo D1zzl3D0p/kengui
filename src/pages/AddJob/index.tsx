@@ -29,13 +29,21 @@ type Step = 1 | 2 | 3 | 4;
 
 const STEP_LABELS = ['Add book', 'Chapters', 'Choose voice', 'Review'];
 
-
-
+export function isCompleteWizardState(s: Partial<WizardState>): s is WizardState {
+  return (
+    typeof s.filePath === 'string' &&
+    s.book != null &&
+    s.chapterPreset != null &&
+    s.chapterSelection != null &&
+    s.narrationMode != null &&
+    typeof s.voice === 'string'
+  );
+}
 
 export default function AddJob() {
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>(1);
-  const [_state, setState] = useState<Partial<WizardState>>({});
+  const [state, setState] = useState<Partial<WizardState>>({});
 
   function StepIndicator() {
     return (
@@ -83,7 +91,7 @@ export default function AddJob() {
         )}
         {step === 2 && (
           <Step2Chapters
-            book={_state.book!}
+            book={state.book!}
             onBack={() => setStep(1)}
             onNext={(data) => {
               setState((s) => ({ ...s, ...data }));
@@ -93,8 +101,8 @@ export default function AddJob() {
         )}
         {step === 3 && (
           <Step3Voice
-            filePath={_state.filePath!}
-            {...(_state.book?.book_id ? { bookId: _state.book.book_id } : {})}
+            filePath={state.filePath!}
+            {...(state.book?.book_id ? { bookId: state.book.book_id } : {})}
             onBack={() => setStep(2)}
             onNext={(data) => {
               setState((s) => ({ ...s, ...data }));
@@ -102,11 +110,22 @@ export default function AddJob() {
             }}
           />
         )}
-        {step === 4 && (
+        {step === 4 && isCompleteWizardState(state) && (
           <Step4Review
-            state={_state as WizardState}
+            state={state}
             onBack={() => setStep(3)}
             onDone={() => navigate('/dashboard')}
+          />
+        )}
+        {step === 4 && !isCompleteWizardState(state) && (
+          <Step3Voice
+            filePath={state.filePath ?? ''}
+            {...(state.book?.book_id ? { bookId: state.book.book_id } : {})}
+            onBack={() => setStep(2)}
+            onNext={(data) => {
+              setState((s) => ({ ...s, ...data }));
+              setStep(4);
+            }}
           />
         )}
       </div>
