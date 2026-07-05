@@ -66,7 +66,7 @@ describe('parseBookCloud', () => {
       method: 'POST',
       body: JSON.stringify({ content_hash: 'deadbeef', size_bytes: 1024, filename: 'great.epub' }),
     }));
-    // No file upload or parse-book call on dedup hit
+    // No file upload or confirm-book-upload call on dedup hit
     expect(nativeCommands.signedUploadFile).not.toHaveBeenCalled();
     expect(cloudRequest).toHaveBeenCalledTimes(1);
   });
