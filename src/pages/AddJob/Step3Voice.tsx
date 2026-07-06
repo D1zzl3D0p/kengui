@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useReducer, useState } from 'react';
 import { Mic2, RefreshCw, UsersRound } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { ModelCombobox } from '../../components/ModelCombobox';
 import { analyzeBook, fetchAnalysisCaches, type AnalysisCacheCandidate, type AnalysisCharacter, type AnalysisResult } from '../../api/books';
-import { analyzeBookCloud, mapCloudAnalysisToCharacters, pollCloudAnalysis, type CloudAnalysisProgressView } from '../../api/cloudBooks';
+import { analyzeBookCloud, mapCloudAnalysisToCharacters, pollCloudAnalysis } from '../../api/cloudBooks';
+import { initialStep3FlowState, step3VoiceReducer } from './step3VoiceReducer';
 import { fetchTask, type TaskResponse } from '../../api/tasks';
 import { useConnectionStore } from '../../store/connection';
 import { fetchMultivoiceStatus, type MultivoiceStatusResponse } from '../../api/status';
@@ -111,13 +112,6 @@ async function pollAuditionTask(
   }
 }
 
-type AuditionView = {
-  status: string;
-  progress: number;
-  message: string;
-  audioUrl?: string;
-};
-
 export default function Step3Voice({ filePath, bookId, onBack, onNext }: Props) {
   const isHosted = useConnectionStore((s) => s.serverMode === 'hosted');
   const [narrationMode, setNarrationMode] = useState<NarrationMode>('single');
@@ -127,23 +121,17 @@ export default function Step3Voice({ filePath, bookId, onBack, onNext }: Props) 
   const [nlpModel, setNlpModel] = useState('llama3.2');
   const [discoveryMethod, setDiscoveryMethod] = useState<CharacterDiscoveryMethod>('auto');
   const [multivoiceStatus, setMultivoiceStatus] = useState<MultivoiceStatusResponse | null>(null);
-  const [analysisTask, setAnalysisTask] = useState<TaskResponse<AnalysisResult> | null>(null);
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
-  const [speakerVoices, setSpeakerVoices] = useState<Record<string, string>>({});
-  const [auditions, setAuditions] = useState<Record<string, AuditionView>>({});
-  const [castWarnings, setCastWarnings] = useState<string[]>([]);
+  const [flow, dispatch] = useReducer(step3VoiceReducer, initialStep3FlowState);
+  const { analyzing, analysisTask, analysisResult, cloudProgress, speakerVoices, castWarnings, auditions, error } = flow;
   const [cacheCandidates, setCacheCandidates] = useState<AnalysisCacheCandidate[]>([]);
   const [selectedCacheId, setSelectedCacheId] = useState('');
   const [cacheLoading, setCacheLoading] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [seriesList, setSeriesList] = useState<SeriesModel[]>([]);
   const [selectedSeriesSlug, setSelectedSeriesSlug] = useState<string>('');
   const [newSeriesName, setNewSeriesName] = useState('');
   const [seriesCreating, setSeriesCreating] = useState(false);
   const [seriesError, setSeriesError] = useState<string | null>(null);
-  const [cloudProgress, setCloudProgress] = useState<CloudAnalysisProgressView | null>(null);
   const {
     models: nlpModelOptions,
     loading: nlpModelsLoading,
@@ -152,7 +140,7 @@ export default function Step3Voice({ filePath, bookId, onBack, onNext }: Props) 
 
   useEffect(() => {
     setLoading(true);
-    setError(null);
+    dispatch({ type: 'ERROR_CLEARED' });
     fetchVoices()
       .then((data) => {
         setVoices(data.voices);
@@ -161,7 +149,7 @@ export default function Step3Voice({ filePath, bookId, onBack, onNext }: Props) 
           setSelectedVoice(firstVoice.name);
         }
       })
-      .catch(() => setError('Failed to load voices.'))
+      .catch(() => dispatch({ type: 'ERROR_SET', error: 'Failed to load voices.' }))
       .finally(() => setLoading(false));
   }, []);
 
@@ -212,9 +200,7 @@ export default function Step3Voice({ filePath, bookId, onBack, onNext }: Props) 
   }, [narrationMode]);
 
   useEffect(() => {
-    setSpeakerVoices((current) =>
-      Object.keys(current).length > 0 ? { ...current, NARRATOR: selectedVoice } : current
-    );
+    dispatch({ type: 'NARRATOR_VOICE_SYNCED', voice: selectedVoice });
   }, [selectedVoice]);
 
   const availableVoices = useMemo(
@@ -244,18 +230,13 @@ export default function Step3Voice({ filePath, bookId, onBack, onNext }: Props) 
     const narratorVoice = selectedVoice || DEFAULT_NARRATOR_VOICE;
     const requestProvider = cacheCandidate?.provider || nlpProvider;
     const requestModel = cacheCandidate?.model || nlpModel;
-    setAnalyzing(true);
-    setError(null);
-    setCastWarnings([]);
-    setAnalysisResult(null);
+    dispatch({ type: 'ANALYSIS_STARTED' });
 
     if (isHosted) {
       if (!bookId) {
-        setError('Book ID is missing — cannot run cloud analysis. Please restart the wizard.');
-        setAnalyzing(false);
+        dispatch({ type: 'ANALYSIS_FAILED', error: 'Book ID is missing — cannot run cloud analysis. Please restart the wizard.' });
         return;
       }
-      setCloudProgress(null);
       try {
         const started = await analyzeBookCloud(bookId, {
           nlp_provider: requestProvider,
@@ -264,7 +245,9 @@ export default function Step3Voice({ filePath, bookId, onBack, onNext }: Props) 
           attribution_provider: requestProvider,
           attribution_model: requestModel,
         });
-        const completed = await pollCloudAnalysis(started.invocation_id, setCloudProgress);
+        const completed = await pollCloudAnalysis(started.invocation_id, (progress) =>
+          dispatch({ type: 'CLOUD_PROGRESS', progress })
+        );
         if (completed.status === 'failed' || !completed.result) {
           throw new Error(completed.error_message ?? 'Cloud analysis failed.');
         }
@@ -281,14 +264,15 @@ export default function Step3Voice({ filePath, bookId, onBack, onNext }: Props) 
           attribution_model: requestModel,
           cache_status: 'cloud',
         };
-        setAnalysisResult(syntheticResult);
         const suggested = await suggestCast(characters, excludedVoiceNames, narratorVoice);
-        setCastWarnings(suggested.warnings);
-        setSpeakerVoices({ ...suggested.speaker_voices, NARRATOR: narratorVoice });
+        dispatch({
+          type: 'ANALYSIS_SUCCEEDED',
+          result: syntheticResult,
+          speakerVoices: { ...suggested.speaker_voices, NARRATOR: narratorVoice },
+          warnings: suggested.warnings,
+        });
       } catch (error) {
-        setError(error instanceof Error ? error.message : 'Cloud analysis failed.');
-      } finally {
-        setAnalyzing(false);
+        dispatch({ type: 'ANALYSIS_FAILED', error: error instanceof Error ? error.message : 'Cloud analysis failed.' });
       }
       return;
     }
@@ -304,27 +288,27 @@ export default function Step3Voice({ filePath, bookId, onBack, onNext }: Props) 
         attribution_model: requestModel,
         use_cache: useCache,
       });
-      setAnalysisTask(task);
-      const completed = await pollAnalysisTask(task.task_id, setAnalysisTask);
+      dispatch({ type: 'ANALYSIS_TASK_UPDATED', task });
+      const completed = await pollAnalysisTask(task.task_id, (next) =>
+        dispatch({ type: 'ANALYSIS_TASK_UPDATED', task: next })
+      );
       if (completed.status === 'failed' || !completed.result) {
         throw new Error(completed.error ?? 'Analysis failed.');
       }
       const characters = validateAnalysisResult(completed.result);
-      setAnalysisResult(completed.result);
       const suggested = await suggestCast(
         characters,
         excludedVoiceNames,
         narratorVoice
       );
-      setCastWarnings(suggested.warnings);
-      setSpeakerVoices({
-        ...suggested.speaker_voices,
-        NARRATOR: narratorVoice,
+      dispatch({
+        type: 'ANALYSIS_SUCCEEDED',
+        result: completed.result,
+        speakerVoices: { ...suggested.speaker_voices, NARRATOR: narratorVoice },
+        warnings: suggested.warnings,
       });
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Analysis failed.');
-    } finally {
-      setAnalyzing(false);
+      dispatch({ type: 'ANALYSIS_FAILED', error: error instanceof Error ? error.message : 'Analysis failed.' });
     }
   }
 
@@ -349,41 +333,36 @@ export default function Step3Voice({ filePath, bookId, onBack, onNext }: Props) 
   }
 
   async function startAudition(auditionKey: string, voiceName: string) {
-    setError(null);
+    dispatch({ type: 'ERROR_CLEARED' });
     try {
       const task = await auditionVoice({ voice_name: voiceName });
-      setAuditions((current) => ({
-        ...current,
-        [auditionKey]: {
-          status: task.status,
-          progress: task.progress,
-          message: task.message,
-        },
-      }));
+      dispatch({
+        type: 'AUDITION_UPDATED',
+        key: auditionKey,
+        view: { status: task.status, progress: task.progress, message: task.message },
+      });
       const completed = await pollAuditionTask(task.task_id, (next) => {
-        setAuditions((current) => ({
-          ...current,
-          [auditionKey]: {
-            status: next.status,
-            progress: next.progress,
-            message: next.message,
-          },
-        }));
+        dispatch({
+          type: 'AUDITION_UPDATED',
+          key: auditionKey,
+          view: { status: next.status, progress: next.progress, message: next.message },
+        });
       });
       if (completed.status === 'failed') {
         throw new Error(completed.error ?? 'Audition failed.');
       }
-      setAuditions((current) => ({
-        ...current,
-        [auditionKey]: {
+      dispatch({
+        type: 'AUDITION_UPDATED',
+        key: auditionKey,
+        view: {
           status: completed.status,
           progress: completed.progress,
           message: completed.message,
           audioUrl: auditionAudioUrl(completed.task_id),
         },
-      }));
+      });
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to start audition.');
+      dispatch({ type: 'ERROR_SET', error: error instanceof Error ? error.message : 'Failed to start audition.' });
     }
   }
 
@@ -748,10 +727,11 @@ export default function Step3Voice({ filePath, bookId, onBack, onNext }: Props) 
                         className="min-h-10 rounded-md border border-input bg-card px-3 py-2"
                         value={speakerVoices[character.character_id] ?? selectedVoice}
                         onChange={(event) =>
-                          setSpeakerVoices((current) => ({
-                            ...current,
-                            [character.character_id]: event.target.value,
-                          }))
+                          dispatch({
+                            type: 'SPEAKER_VOICE_CHANGED',
+                            characterId: character.character_id,
+                            voice: event.target.value,
+                          })
                         }
                       >
                         {Object.entries(voicesByGender).map(([genderLabel, gVoices]) => (
