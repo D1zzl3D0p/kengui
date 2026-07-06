@@ -5,6 +5,7 @@ import {
   type RuntimeHealth,
 } from '../runtime/runtime';
 import { useConnectionStore } from '../store/connection';
+import { evaluateVersionHandshake } from '../api/version';
 
 export type LogOrder = 'newest' | 'oldest';
 
@@ -39,6 +40,14 @@ export function useDiagnostics() {
 
   const localRuntimeManagement =
     serverMode === 'local' && health ? (status?.running ? 'managed' : 'attached') : null;
+
+  // Runtime API-version handshake: warn (non-blocking) when the connected
+  // server's api_version has a different major than the version kengui was
+  // built against. Only meaningful for direct kenkui connections.
+  const versionWarning = useMemo(() => {
+    if (!health || serverMode === 'hosted') return null;
+    return evaluateVersionHandshake(health.api_version).warning;
+  }, [health, serverMode]);
 
   async function refreshDiagnostics() {
     const runtime = createRuntimeAdapter(serverMode, serverUrl);
@@ -134,6 +143,7 @@ export function useDiagnostics() {
     setLogFilter,
     copied,
     localRuntimeManagement,
+    versionWarning,
     refreshDiagnostics,
     handleRestart,
     handleCopyLogs,

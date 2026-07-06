@@ -1,9 +1,7 @@
 import { ApiError, apiRequest } from './client';
+import type { Schemas } from './schemas';
 
-export interface ProviderModelListResponse {
-  provider: string;
-  models: string[];
-}
+export type ProviderModelListResponse = Schemas['ProviderModelListResponse'];
 
 export class UnsupportedProviderModelsError extends Error {
   constructor() {

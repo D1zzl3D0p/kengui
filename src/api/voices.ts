@@ -3,47 +3,26 @@ import { useConnectionStore } from '../store/connection';
 import { resolveServerBaseUrl } from './serverUrl';
 import type { AnalysisCharacter } from './books';
 import type { TaskResponse } from './tasks';
+import type { Schemas } from './schemas';
 
-export interface VoiceResponse {
-  name: string;
-  source: string;
-  gender: string | null;
-  accent: string | null;
-  dataset: string | null;
-  speaker_id: string | null;
-  description: string;
-  display_label: string;
-  excluded: boolean;
-}
+export type VoiceResponse = Schemas['VoiceResponse'];
 
-export interface VoiceListResponse {
-  voices: VoiceResponse[];
-  total: number;
-}
+export type VoiceListResponse = Schemas['VoiceListResponse'];
 
-export interface VoicePoolResponse {
-  voice_id: string;
-  pool_enabled: boolean;
-}
+export type VoicePoolResponse = Schemas['VoicePoolResponse'];
 
-export interface SuggestCastResponse {
-  speaker_voices: Record<string, string>;
-  warnings: string[];
-}
+export type SuggestCastResponse = Schemas['SuggestCastResponse'];
 
-export interface AuditionRequest {
-  voice_name: string;
-  text?: string | null;
-}
+export type AuditionRequest = Schemas['AuditionRequest'];
 
+// `force` has a server-side default, so it is optional for callers.
+export type DownloadRequest = Partial<Schemas['DownloadRequest']>;
+
+// Client-side: no server schema (audition task result shape).
 export interface AudioPreviewResult {
   voice_id: string;
   audio_path: string;
   duration_ms?: number | null;
-}
-
-export interface DownloadRequest {
-  force?: boolean;
 }
 
 export const fetchVoices = () => apiRequest<VoiceListResponse>('/voices');

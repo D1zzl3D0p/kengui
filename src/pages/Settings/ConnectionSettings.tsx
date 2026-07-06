@@ -56,6 +56,7 @@ export function ConnectionSettings({
     setLogFilter,
     copied,
     localRuntimeManagement,
+    versionWarning,
     refreshDiagnostics,
     handleRestart,
     handleCopyLogs,
@@ -305,6 +306,15 @@ export function ConnectionSettings({
           {diagnosticError && (
             <p className="mt-3 rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {diagnosticError}
+            </p>
+          )}
+
+          {versionWarning && (
+            <p
+              role="alert"
+              className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
+            >
+              {versionWarning}
             </p>
           )}
         </div>

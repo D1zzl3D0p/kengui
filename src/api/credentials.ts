@@ -1,21 +1,13 @@
 import { ApiError, apiRequest } from './client';
+import type { Schemas } from './schemas';
 
-export interface ProviderCredentialStatus {
-  provider: string;
-  configured: boolean;
-  default_model: string;
-  masked_key_hint: string;
-}
+export type ProviderCredentialStatus = Schemas['ProviderCredentialStatus'];
 
-export interface ProviderCredentialListResponse {
-  providers: ProviderCredentialStatus[];
-}
+export type ProviderCredentialListResponse = Schemas['ProviderCredentialListResponse'];
 
-export interface ProviderCredentialUpdateRequest {
-  api_key?: string | null;
-  default_model?: string | null;
-}
+export type ProviderCredentialUpdateRequest = Schemas['ProviderCredentialUpdateRequest'];
 
+// Client-side: no server schema (test endpoint returns an ad-hoc payload).
 export interface ProviderCredentialTestResponse {
   status?: string;
   message?: string;
