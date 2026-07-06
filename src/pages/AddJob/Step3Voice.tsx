@@ -12,6 +12,7 @@ import { auditionAudioUrl, auditionVoice, fetchVoices, suggestCast, type AudioPr
 import { fetchConfig } from '../../api/config';
 import type { NarrationMode } from '../../api/queue';
 import { NLP_PROVIDER_OPTIONS } from '../../lib/providerCatalog';
+import { computeBackoffInterval } from '../../lib/pollingBackoff';
 import { useProviderModels } from '../../hooks/useProviderModels';
 import { createEmptySeries, fetchSeries, type SeriesModel } from '../../api/series';
 
@@ -88,13 +89,21 @@ async function pollAnalysisTask(
   taskId: string,
   onUpdate: (task: TaskResponse<AnalysisResult>) => void
 ) {
+  let consecutiveUnchanged = 0;
+  let prevProgress: number | null = null;
   for (;;) {
     const task = await fetchTask<AnalysisResult>(taskId);
     onUpdate(task);
     if (task.status === 'completed' || task.status === 'failed') {
       return task;
     }
-    await new Promise((resolve) => setTimeout(resolve, 900));
+    if (prevProgress !== null && task.progress === prevProgress) {
+      consecutiveUnchanged += 1;
+    } else {
+      consecutiveUnchanged = 0;
+    }
+    prevProgress = task.progress;
+    await new Promise((resolve) => setTimeout(resolve, computeBackoffInterval(consecutiveUnchanged)));
   }
 }
 
@@ -102,13 +111,21 @@ async function pollAuditionTask(
   taskId: string,
   onUpdate: (task: TaskResponse<AudioPreviewResult>) => void
 ) {
+  let consecutiveUnchanged = 0;
+  let prevProgress: number | null = null;
   for (;;) {
     const task = await fetchTask<AudioPreviewResult>(taskId);
     onUpdate(task);
     if (task.status === 'completed' || task.status === 'failed') {
       return task;
     }
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    if (prevProgress !== null && task.progress === prevProgress) {
+      consecutiveUnchanged += 1;
+    } else {
+      consecutiveUnchanged = 0;
+    }
+    prevProgress = task.progress;
+    await new Promise((resolve) => setTimeout(resolve, computeBackoffInterval(consecutiveUnchanged)));
   }
 }
 

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { BookOpen, CirclePause, CirclePlay, FolderOpen, ListMusic, RotateCcw, X } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { StatusBadge } from '../components/StatusBadge';
@@ -18,6 +18,7 @@ import {
 } from '../api/queue';
 import type { JobResponse, QueueResponse } from '../api/queue';
 import { nativeCommands } from '../platform';
+import { computeBackoffInterval } from '../lib/pollingBackoff';
 import { useConnectionStore } from '../store/connection';
 
 function formatEta(seconds: number): string {
@@ -398,11 +399,25 @@ function JobRow({ job }: { job: JobResponse }) {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const backoffCountRef = useRef(0);
+  const lastQueueHashRef = useRef('');
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ['queue'],
     queryFn: fetchQueue,
-    refetchInterval: 2000,
+    refetchInterval: () => computeBackoffInterval(backoffCountRef.current, { initial: 2000, cap: 15000 }),
   });
+
+  useEffect(() => {
+    const hash = JSON.stringify(data?.items.map((i) => i.status));
+    if (hash === lastQueueHashRef.current) {
+      backoffCountRef.current += 1;
+    } else {
+      backoffCountRef.current = 0;
+      lastQueueHashRef.current = hash;
+    }
+  }, [data]);
+
   const processingCount = data?.items.filter((job) => job.status === 'processing').length ?? 0;
 
   return (
