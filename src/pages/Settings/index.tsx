@@ -40,9 +40,8 @@ export default function Settings() {
           setLocalComputeTarget={setLocalComputeTarget}
           workers={workers}
           diagnostics={diagnostics}
+          accountSlot={showCloudAccount ? <AccountSettings localComputeTarget={localComputeTarget} /> : undefined}
         />
-
-        {showCloudAccount && <AccountSettings localComputeTarget={localComputeTarget} />}
 
         <ConfigSettings health={diagnostics.health} onWorkersChange={setWorkers} />
 

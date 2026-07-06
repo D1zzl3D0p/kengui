@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Copy, RefreshCw, RotateCcw, Server } from 'lucide-react';
 import { Button } from '../../components/ui/button';
@@ -24,6 +25,8 @@ interface Props {
   /** Config workers value shown in the runtime diagnostics table. */
   workers: string;
   diagnostics: DiagnosticsController;
+  /** Optional slot rendered between the Server section and the Runtime section. */
+  accountSlot?: ReactNode;
 }
 
 export function ConnectionSettings({
@@ -35,6 +38,7 @@ export function ConnectionSettings({
   setLocalComputeTarget,
   workers,
   diagnostics,
+  accountSlot,
 }: Props) {
   const { serverMode, serverUrl, computeTarget, setServerMode, setComputeTarget } = useConnectionStore();
   const {
@@ -224,6 +228,8 @@ export function ConnectionSettings({
           </p>
         )}
       </section>
+
+      {accountSlot}
 
       <section className="flex flex-col gap-4 rounded-lg border bg-card p-5 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
         <div className="flex items-center justify-between gap-3">
