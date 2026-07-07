@@ -25,3 +25,6 @@ src-tauri/target/
 *.njsproj
 *.sln
 *.sw?
+
+# Generated API contract (derived build artifact, never committed)
+src/api/generated/

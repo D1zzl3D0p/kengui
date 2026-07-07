@@ -1,15 +1,11 @@
 import { apiRequest } from './client';
+import type { Schemas } from './schemas';
 
 export type KenkuiConfig = Record<string, unknown>;
 
-export interface ConfigResponse {
-  config: KenkuiConfig;
-}
+export type ConfigResponse = Schemas['ConfigResponse'];
 
-export interface OkResponse {
-  message?: string;
-  status?: string;
-}
+export type OkResponse = Schemas['OkResponse'];
 
 export const fetchConfig = () => apiRequest<ConfigResponse>('/config');
 

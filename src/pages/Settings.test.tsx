@@ -431,6 +431,30 @@ describe('Settings', () => {
     );
   });
 
+  it('renders sections in order: Server, Cloud Account, Runtime, Config, Credentials', async () => {
+    useConnectionStore.setState({ computeTarget: 'kenkui-cloud' });
+    renderSettings();
+
+    // Wait for async sections to mount
+    await screen.findByRole('heading', { name: /cloud account/i });
+
+    const headings = screen
+      .getAllByRole('heading', { level: 2 })
+      .map((h) => h.textContent?.trim());
+
+    const serverIdx = headings.findIndex((t) => t === 'Server');
+    const cloudIdx = headings.findIndex((t) => /cloud account/i.test(t ?? ''));
+    const runtimeIdx = headings.findIndex((t) => t === 'Runtime');
+    const configIdx = headings.findIndex((t) => /^Config$/i.test(t ?? ''));
+    const credIdx = headings.findIndex((t) => /credentials/i.test(t ?? ''));
+
+    expect(serverIdx).toBeGreaterThanOrEqual(0);
+    expect(cloudIdx).toBeGreaterThan(serverIdx);
+    expect(runtimeIdx).toBeGreaterThan(cloudIdx);
+    expect(configIdx).toBeGreaterThan(runtimeIdx);
+    expect(credIdx).toBeGreaterThan(configIdx);
+  });
+
   it('shows masked credentials and saves plus tests provider credentials', async () => {
     renderSettings();
 

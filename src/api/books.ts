@@ -2,39 +2,16 @@ import { apiRequest } from './client';
 import { useConnectionStore } from '../store/connection';
 import { parseBookCloud, filterChaptersCloud } from './cloudBooks';
 import type { TaskResponse } from './tasks';
+import type { Schemas } from './schemas';
 
-export interface ChapterSummary {
-  index: number;
-  title: string;
-  word_count: number;
-  paragraph_count: number;
-  toc_index: number;
-  tags: Record<string, unknown>;
-}
+export type ChapterSummary = Schemas['ChapterSummaryModel'];
 
-export interface BookParseResponse {
-  book_hash: string;
-  metadata: Record<string, unknown>;
-  chapters: ChapterSummary[];
-  total_chapters: number;
-  total_word_count: number;
-  book_id?: string;
-}
+// Server schema plus a client-side `book_id` injected in hosted mode.
+export type BookParseResponse = Schemas['BookParseResponse'] & { book_id?: string };
 
-export type ChapterPreset =
-  | 'none'
-  | 'content-only'
-  | 'chapters-only'
-  | 'with-parts'
-  | 'manual'
-  | 'custom';
+export type ChapterPreset = Schemas['ChapterPreset'];
 
-export interface ChapterFilterResponse {
-  included_indices: number[];
-  chapter_count: number;
-  estimated_word_count: number;
-  chapters: ChapterSummary[];
-}
+export type ChapterFilterResponse = Schemas['ChapterFilterResponse'];
 
 export interface AnalysisCharacter {
   character_id: string;
@@ -56,34 +33,14 @@ export interface AnalysisResult {
   cache_status: string;
 }
 
-export interface AnalysisCacheCandidate {
-  cache_id: string;
-  step: string;
-  provider: string;
-  model: string;
-  method: string;
-  created_at: string;
-  description: string;
-  path: string;
-  character_count: number;
-  chapter_count: number;
-  quote_count: number;
-}
+export type AnalysisCacheCandidate = Schemas['BookCacheCandidate'];
 
-export interface AnalysisCacheCandidatesResponse {
-  book_hash: string;
-  candidates: AnalysisCacheCandidate[];
-}
+export type AnalysisCacheCandidatesResponse = Schemas['BookCacheCandidatesResponse'];
 
-export interface BookAnalyzeRequest {
-  ebook_path: string;
-  nlp_model?: string | null;
-  nlp_provider?: string | null;
-  discovery_method?: string | null;
-  attribution_provider?: string | null;
-  attribution_model?: string | null;
+// `use_cache` has a server-side default, so it is optional for callers.
+export type BookAnalyzeRequest = Omit<Schemas['BookAnalyzeRequest'], 'use_cache'> & {
   use_cache?: boolean;
-}
+};
 
 export const parseBook = (ebook_path: string): Promise<BookParseResponse> =>
   useConnectionStore.getState().serverMode === 'hosted'

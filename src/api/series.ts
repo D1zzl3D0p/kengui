@@ -1,36 +1,17 @@
 import { apiRequest } from './client';
+import type { Schemas } from './schemas';
 
-export interface SeriesCharacter {
-  canonical: string;
-  aliases: string[];
-  gender: string;
-  voice: string;
-}
+export type SeriesCharacter = Schemas['SeriesCharacterModel'];
 
-export interface SeriesModel {
-  slug: string;
-  name: string;
-  updated_at?: string;
-  characters?: SeriesCharacter[];
-}
+export type SeriesModel = Schemas['SeriesModel'];
 
-export interface SeriesListResponse {
-  series: SeriesModel[];
-  total: number;
-}
+export type SeriesListResponse = Schemas['SeriesListResponse'];
 
-export interface CreateEmptySeriesRequest {
-  name: string;
-}
+export type CreateEmptySeriesRequest = Schemas['CreateEmptySeriesRequest'];
 
-export interface SeriesMatchRequest {
-  fast_result: Record<string, unknown>;
-}
+export type SeriesMatchRequest = Schemas['SeriesMatchRequest'];
 
-export interface SeriesMatchResponse {
-  inherited_voices: Record<string, string>;
-  pinned: string[];
-}
+export type SeriesMatchResponse = Schemas['SeriesMatchResponse'];
 
 export const fetchSeries = () =>
   apiRequest<SeriesListResponse>('/series');
