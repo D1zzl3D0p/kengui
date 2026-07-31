@@ -1,4 +1,5 @@
 import { getAccessToken, refreshSupabaseSession } from '../auth/supabase';
+import { supabaseAnonKey } from '../auth/supabaseClient';
 import { useConnectionStore } from '../store/connection';
 import { cloudFunctionsUrlForBase } from '../lib/cloudUrls';
 
@@ -33,6 +34,7 @@ async function authHeaders(options?: RequestInit): Promise<Headers> {
   if (!headers.has('Content-Type') && options?.body !== undefined) {
     headers.set('Content-Type', 'application/json');
   }
+  headers.set('apikey', supabaseAnonKey());
   const token = await getAccessToken();
   if (!token) throw new CloudApiError(401, 'Sign in to Kengui Cloud before submitting cloud jobs.');
   headers.set('Authorization', `Bearer ${token}`);

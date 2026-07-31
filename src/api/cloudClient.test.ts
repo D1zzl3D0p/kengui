@@ -13,6 +13,7 @@ const fetchMock = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv('VITE_SUPABASE_URL', 'https://project.supabase.co');
+  vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key');
   vi.stubEnv('VITE_KENKUI_CLOUD_FUNCTIONS_URL', '');
   useConnectionStore.setState({
     serverMode: 'local',
@@ -74,6 +75,7 @@ describe('cloud client', () => {
     );
     const headers = fetchMock.mock.calls[0]![1].headers as Headers;
     expect(headers.get('Authorization')).toBe('Bearer token-1');
+    expect(headers.get('apikey')).toBe('anon-key');
   });
 
   it('refreshes the Supabase session once after a 401', async () => {
