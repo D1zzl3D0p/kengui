@@ -25,10 +25,10 @@ vi.mock('./platform', () => ({
   externalUrl: {
     openExternalUrl: vi.fn(() => Promise.resolve()),
   },
-  secureStore: {
-    loadSession: vi.fn(() => Promise.resolve(null)),
-    saveSession: vi.fn(() => Promise.resolve()),
-    clearSession: vi.fn(() => Promise.resolve()),
+  secureKv: {
+    getItem: vi.fn(() => Promise.resolve(null)),
+    setItem: vi.fn(() => Promise.resolve()),
+    removeItem: vi.fn(() => Promise.resolve()),
   },
   nativeStore: {
     loadSettings: vi.fn(() =>

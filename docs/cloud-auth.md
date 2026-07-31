@@ -5,6 +5,24 @@ desktop app opens a Supabase authorize URL, Supabase redirects to GitHub, and
 GitHub redirects back to Supabase before Supabase sends the final code to
 Kengui.
 
+## Auth client
+
+Kengui delegates the OAuth/PKCE flow to `@supabase/supabase-js`
+(`src/auth/supabaseClient.ts`), configured with `flowType: 'pkce'`,
+`detectSessionInUrl: false` (the desktop app receives the callback over a
+loopback/deep link, not a web redirect), and `autoRefreshToken: true`. Session
+state (including the refresh token and the transient PKCE code-verifier) is
+persisted through the `secureKv` adapter, which stores a single JSON blob in the
+OS keychain (`src-tauri/src/lib.rs`) with a `localStorage` fallback on platforms
+without native keychain support. The client library attaches the `apikey` header
+to every request automatically; `src/api/cloudClient.ts` also sets it explicitly
+on Edge Function calls.
+
+"Kengui Cloud" targets **one fixed hosted project**. The Supabase Auth origin,
+the anon key, and the hosted control-plane URL are all baked into the build from
+`VITE_*` env — there is no runtime field for entering a Supabase URL or key, so
+the auth origin and the runtime origin can never diverge.
+
 ## GitHub Callback URL
 
 If GitHub shows this error:
@@ -90,16 +108,20 @@ A cloud-enabled Kengui build has two separate origins:
   functions origin explicitly.
 
 Authorize, provider callback, PKCE token exchange, and token refresh requests
-use the Supabase Auth origin, never the active/saved hosted runtime URL. By
-default this is `VITE_SUPABASE_URL`. When a custom or local Supabase origin is
-passed explicitly, Kengui normalizes and uses it for authorize and exchange,
-persists it with the successful session, and continues using that exact origin
-for refreshes. Legacy sessions that do not contain an Auth origin safely fall
-back to `VITE_SUPABASE_URL` and persist that normalized origin when refreshed.
-Runtime and Edge Function calls continue to use the hosted runtime/functions
-configuration. A hosted build with neither a session Auth origin nor
-`VITE_SUPABASE_URL` fails Auth as unconfigured rather than sending
-`VITE_SUPABASE_ANON_KEY` to a runtime origin.
+all use the `VITE_SUPABASE_URL` Auth origin and its paired
+`VITE_SUPABASE_ANON_KEY`. Runtime and Edge Function calls use the hosted
+runtime/functions configuration. Because the project is fixed at build time,
+these origins refer to the same hosted project; the app exposes no field for
+entering a Supabase URL or key at runtime, so a build's Auth credentials can
+never be sent to a different project. A build with no `VITE_SUPABASE_URL` /
+`VITE_SUPABASE_ANON_KEY` reports Auth as unconfigured rather than sending a
+credential anywhere.
+
+Use the **hosted** project's own `VITE_SUPABASE_ANON_KEY` from its dashboard.
+The `supabase-demo` key and any local `sb_publishable_` key are project-scoped to
+the local stack and will be rejected by a hosted project with
+`401 Invalid API key` — this was the root cause documented in
+`cloud-auth-hosted-invalid-api-key.md`.
 
 Vite embeds `VITE_*` values into the client bundle. Changing any of these client
 settings requires rebuilding and releasing Kengui; deploying Supabase database
