@@ -13,6 +13,9 @@ pub enum AppError {
     Io(String),
 
     /// JSON serialisation / deserialisation failures.
+    // Retained as part of the failure taxonomy; currently unconstructed after
+    // auth-session storage moved to opaque strings (no serde in the command).
+    #[allow(dead_code)]
     #[error("{0}")]
     Serde(String),
 

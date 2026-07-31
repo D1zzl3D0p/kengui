@@ -55,18 +55,6 @@ struct ServerStatus {
     log_tail: Vec<String>,
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AuthSession {
-    access_token: String,
-    refresh_token: String,
-    expires_at: i64,
-    email: Option<String>,
-    provider: Option<String>,
-    #[serde(default)]
-    auth_origin: Option<String>,
-}
-
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NativeFileStat {
@@ -937,20 +925,13 @@ fn delete_auth_session() -> Result<(), AppError> {
 }
 
 #[tauri::command]
-async fn save_auth_session(session: AuthSession) -> Result<(), AppError> {
-    let session_json = serde_json::to_string(&session)
-        .map_err(|e| AppError::Serde(format!("Failed to serialize auth session: {e}")))?;
-    write_auth_session(&session_json)
+async fn save_auth_session(value: String) -> Result<(), AppError> {
+    write_auth_session(&value)
 }
 
 #[tauri::command]
-async fn load_auth_session() -> Result<Option<AuthSession>, AppError> {
-    let Some(session_json) = read_auth_session()? else {
-        return Ok(None);
-    };
-    serde_json::from_str(&session_json)
-        .map(Some)
-        .map_err(|e| AppError::Serde(format!("Failed to parse stored auth session: {e}")))
+async fn load_auth_session() -> Result<Option<String>, AppError> {
+    read_auth_session()
 }
 
 #[tauri::command]
