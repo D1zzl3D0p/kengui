@@ -43,9 +43,6 @@ export default function Connecting() {
   const [customUrl, setCustomUrl] = useState(
     serverMode === 'external' ? serverUrl : 'https://example.com'
   );
-  const [hostedUrl, setHostedUrl] = useState(
-    serverMode === 'hosted' ? serverUrl : HOSTED_RUNTIME_URL
-  );
   const [customAuthMode, setCustomAuthMode] = useState<ConnectionAuthMode>(authMode);
   const [authSession, setAuthSession] = useState<AuthSessionSummary | null>(null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
@@ -150,7 +147,7 @@ export default function Connecting() {
         mode === 'local'
           ? 'http://localhost:45365'
           : mode === 'hosted'
-            ? normalizeSupabaseBaseUrl(hostedUrl)
+            ? normalizeSupabaseBaseUrl(HOSTED_RUNTIME_URL)
             : normalizeHttpUrl(customUrl, 'Server URL');
       if (nextAuthMode === 'supabase' && !authSession) {
         throw new Error('Sign in before connecting to this runtime.');
@@ -255,15 +252,9 @@ export default function Connecting() {
 
         {selectedMode === 'hosted' && (
           <section className="rounded-lg border bg-card p-5 shadow-sm">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="hosted-url">Hosted control plane URL</Label>
-              <Input
-                id="hosted-url"
-                type="url"
-                value={hostedUrl}
-                onChange={(event) => setHostedUrl(event.target.value)}
-                placeholder="https://api.kengui.app"
-              />
+            <div className="flex flex-col gap-1">
+              <Label>Hosted control plane</Label>
+              <p className="break-all text-sm text-muted-foreground">{HOSTED_RUNTIME_URL}</p>
             </div>
           </section>
         )}
