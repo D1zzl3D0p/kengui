@@ -1,66 +1,76 @@
 import { invoke } from '@tauri-apps/api/core';
 
-const SESSION_KEY = 'kengui.supabase.session';
+const STORAGE_SLOT_KEY = 'kengui.supabase.session';
 
-export interface StoredAuthSession {
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: number;
-  email: string | null;
-  provider: string | null;
-  authOrigin?: string;
+export interface SecureKvStorage {
+  getItem(key: string): Promise<string | null>;
+  setItem(key: string, value: string): Promise<void>;
+  removeItem(key: string): Promise<void>;
 }
 
-export interface SecureSessionStore {
-  loadSession: () => Promise<StoredAuthSession | null>;
-  saveSession: (session: StoredAuthSession) => Promise<void>;
-  clearSession: () => Promise<void>;
-}
+let cache: Record<string, string> | null = null;
+let hydration: Promise<Record<string, string>> | null = null;
 
-function readFallback(): StoredAuthSession | null {
-  if (typeof localStorage === 'undefined') return null;
-  const value = localStorage.getItem(SESSION_KEY);
-  if (!value) return null;
+async function readBlob(): Promise<string | null> {
   try {
-    return JSON.parse(value) as StoredAuthSession;
+    return await invoke<string | null>('load_auth_session');
   } catch {
-    localStorage.removeItem(SESSION_KEY);
-    return null;
+    return typeof localStorage === 'undefined' ? null : localStorage.getItem(STORAGE_SLOT_KEY);
   }
 }
 
-function writeFallback(session: StoredAuthSession): void {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+async function writeBlob(value: string): Promise<void> {
+  try {
+    await invoke('save_auth_session', { value });
+  } catch {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(STORAGE_SLOT_KEY, value);
+  }
 }
 
-function clearFallback(): void {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.removeItem(SESSION_KEY);
+async function clearBlob(): Promise<void> {
+  try {
+    await invoke('clear_auth_session');
+  } catch {
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(STORAGE_SLOT_KEY);
+  }
 }
 
-export const secureStore: SecureSessionStore = {
-  async loadSession() {
-    try {
-      return await invoke<StoredAuthSession | null>('load_auth_session');
-    } catch {
-      return readFallback();
-    }
-  },
+async function hydrate(): Promise<Record<string, string>> {
+  if (cache) return cache;
+  if (!hydration) {
+    hydration = (async () => {
+      const raw = await readBlob();
+      try {
+        cache = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+      } catch {
+        cache = {};
+      }
+      return cache;
+    })();
+  }
+  return hydration;
+}
 
-  async saveSession(session) {
-    try {
-      await invoke('save_auth_session', { session });
-    } catch {
-      writeFallback(session);
-    }
-  },
+async function persist(map: Record<string, string>): Promise<void> {
+  if (Object.keys(map).length === 0) await clearBlob();
+  else await writeBlob(JSON.stringify(map));
+}
 
-  async clearSession() {
-    try {
-      await invoke('clear_auth_session');
-    } catch {
-      clearFallback();
+export const secureKv: SecureKvStorage = {
+  async getItem(key) {
+    const map = await hydrate();
+    return key in map ? map[key] : null;
+  },
+  async setItem(key, value) {
+    const map = await hydrate();
+    map[key] = value;
+    await persist(map);
+  },
+  async removeItem(key) {
+    const map = await hydrate();
+    if (key in map) {
+      delete map[key];
+      await persist(map);
     }
   },
 };
