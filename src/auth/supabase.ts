@@ -1,5 +1,4 @@
 import { secureStore, type StoredAuthSession } from '../platform';
-import { useConnectionStore } from '../store/connection';
 import { normalizeSupabaseBaseUrl } from '../lib/cloudUrls';
 
 const PKCE_VERIFIER_KEY = 'kengui.pkce.verifier';
@@ -53,8 +52,6 @@ export function supabaseConfigured(supabaseBaseUrl?: string): boolean {
 
 function resolveSupabaseUrl(override?: string): string | null {
   if (override) return normalizeSupabaseBaseUrl(override);
-  const { serverMode, serverUrl } = useConnectionStore.getState();
-  if (serverMode === 'hosted') return normalizeSupabaseBaseUrl(serverUrl);
   const url = import.meta.env.VITE_SUPABASE_URL;
   return url ? normalizeSupabaseBaseUrl(url) : null;
 }
@@ -77,6 +74,15 @@ function supabaseAnonKey(): string {
   const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
   if (!key) throw new Error('Supabase anon key is not configured.');
   return key;
+}
+
+function supabaseAuthHeaders(): Record<string, string> {
+  const key = supabaseAnonKey();
+  return {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+    'Content-Type': 'application/json',
+  };
 }
 
 function base64Url(bytes: Uint8Array): string {
@@ -119,12 +125,12 @@ export async function createSupabaseOAuthUrl(
     provider,
     redirect_to: redirectUrl(redirectTo),
     code_challenge: await sha256Base64Url(verifier),
-    code_challenge_method: 'S256',
+    code_challenge_method: 's256',
   });
   return `${baseUrl}/auth/v1/authorize?${params}`;
 }
 
-function normalizeSession(data: any): StoredAuthSession {
+function normalizeSession(data: any, authOrigin?: string): StoredAuthSession {
   const expiresIn = typeof data.expires_in === 'number' ? data.expires_in : 3600;
   const user = data.user ?? {};
   return {
@@ -136,7 +142,35 @@ function normalizeSession(data: any): StoredAuthSession {
       typeof user.app_metadata?.provider === 'string'
         ? user.app_metadata.provider
         : null,
+    ...(authOrigin ? { authOrigin: normalizeSupabaseBaseUrl(authOrigin) } : {}),
   };
+}
+
+async function supabaseTokenErrorMessage(response: Response): Promise<string> {
+  let detail = '';
+  let code = '';
+  try {
+    const data = await response.json();
+    if (typeof data.error_description === 'string') {
+      detail = data.error_description;
+    } else if (typeof data.msg === 'string') {
+      detail = data.msg;
+    } else if (typeof data.message === 'string') {
+      detail = data.message;
+    } else if (typeof data.error === 'string') {
+      detail = data.error;
+    }
+    if (typeof data.error_code === 'string') {
+      code = data.error_code;
+    } else if (typeof data.code === 'string') {
+      code = data.code;
+    }
+  } catch {
+    // Non-JSON response bodies can contain unsafe upstream diagnostics.
+  }
+  const codeSuffix = code ? ` (${code})` : '';
+  const suffix = detail ? `: ${detail}${codeSuffix}` : code ? ` (${code})` : '';
+  return `Supabase token exchange failed with ${response.status}${suffix}.`;
 }
 
 export async function exchangeSupabaseCode(callbackUrl: string): Promise<StoredAuthSession> {
@@ -149,23 +183,20 @@ export async function exchangeSupabaseCode(callbackUrl: string): Promise<StoredA
     throw new Error('Could not complete sign in. Start the login again.');
   }
 
-  const baseUrl = sessionStorage.getItem(PKCE_SUPABASE_URL_KEY) ?? undefined;
-  const response = await fetch(`${supabaseUrl(baseUrl)}/auth/v1/token?grant_type=pkce`, {
+  const baseUrl = supabaseUrl(sessionStorage.getItem(PKCE_SUPABASE_URL_KEY) ?? undefined);
+  const response = await fetch(`${baseUrl}/auth/v1/token?grant_type=pkce`, {
     method: 'POST',
-    headers: {
-      apikey: supabaseAnonKey(),
-      'Content-Type': 'application/json',
-    },
+    headers: supabaseAuthHeaders(),
     body: JSON.stringify({
       auth_code: code,
       code_verifier: verifier,
     }),
   });
   if (!response.ok) {
-    throw new Error(`Sign in failed with ${response.status}.`);
+    throw new Error(await supabaseTokenErrorMessage(response));
   }
 
-  const session = normalizeSession(await response.json());
+  const session = normalizeSession(await response.json(), baseUrl);
   await secureStore.saveSession(session);
   sessionStorage.removeItem(PKCE_VERIFIER_KEY);
   sessionStorage.removeItem(PKCE_SUPABASE_URL_KEY);
@@ -196,19 +227,17 @@ export async function getAccessToken(): Promise<string | null> {
 export async function refreshSupabaseSession(): Promise<StoredAuthSession | null> {
   const current = await secureStore.loadSession();
   if (!current?.refreshToken) return null;
-  const response = await fetch(`${supabaseUrl()}/auth/v1/token?grant_type=refresh_token`, {
+  const baseUrl = supabaseUrl(current.authOrigin);
+  const response = await fetch(`${baseUrl}/auth/v1/token?grant_type=refresh_token`, {
     method: 'POST',
-    headers: {
-      apikey: supabaseAnonKey(),
-      'Content-Type': 'application/json',
-    },
+    headers: supabaseAuthHeaders(),
     body: JSON.stringify({ refresh_token: current.refreshToken }),
   });
   if (!response.ok) {
     await secureStore.clearSession();
     return null;
   }
-  const session = normalizeSession(await response.json());
+  const session = normalizeSession(await response.json(), baseUrl);
   await secureStore.saveSession(session);
   return session;
 }

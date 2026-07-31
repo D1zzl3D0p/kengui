@@ -93,7 +93,9 @@ export default function Connecting() {
 
   useEffect(() => {
     let cancelled = false;
+    let unlistenAuthCallback: (() => void) | null = null;
     deepLinks.onAuthCallback((url) => {
+      if (cancelled) return;
       exchangeSupabaseCode(url)
         .then((session) => {
           if (cancelled) return;
@@ -109,21 +111,24 @@ export default function Connecting() {
           }
         });
     }).then((unlisten) => {
-      if (cancelled) unlisten();
+      if (cancelled) {
+        unlisten();
+      } else {
+        unlistenAuthCallback = unlisten;
+      }
     });
     return () => {
       cancelled = true;
+      unlistenAuthCallback?.();
     };
   }, []);
 
   async function beginOAuth(provider: SupabaseOAuthProvider) {
     setAuthMessage(null);
-    const supabaseBaseUrl =
-      selectedMode === 'hosted' ? normalizeSupabaseBaseUrl(hostedUrl) : undefined;
     try {
       await beginSupabaseOAuth({
         provider,
-        supabaseBaseUrl,
+        supabaseBaseUrl: undefined,
         callbackMode: selectedMode === 'hosted' ? 'desktop' : 'browser',
       });
     } catch (error) {

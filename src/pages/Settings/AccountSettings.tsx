@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { KeyRound, LogIn, LogOut } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import type { ComputeTarget } from '../../store/connection';
-import { useConnectionStore } from '../../store/connection';
 import {
   clearAuthSession,
   exchangeSupabaseCode,
@@ -12,15 +11,13 @@ import {
 } from '../../auth/supabase';
 import { beginSupabaseOAuth } from '../../auth/oauthStart';
 import { deepLinks } from '../../platform';
-import { normalizeSupabaseBaseUrl } from '../../lib/cloudUrls';
-import { CLOUD_AUTH_PROVIDERS, HOSTED_RUNTIME_URL } from './constants';
+import { CLOUD_AUTH_PROVIDERS } from './constants';
 
 interface Props {
   localComputeTarget: ComputeTarget;
 }
 
 export function AccountSettings({ localComputeTarget }: Props) {
-  const { serverMode, serverUrl } = useConnectionStore();
   const [authSession, setAuthSession] = useState<AuthSessionSummary | null>(null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
@@ -31,7 +28,9 @@ export function AccountSettings({ localComputeTarget }: Props) {
 
   useEffect(() => {
     let cancelled = false;
+    let unlistenAuthCallback: (() => void) | null = null;
     deepLinks.onAuthCallback((url) => {
+      if (cancelled) return;
       exchangeSupabaseCode(url)
         .then((session) => {
           if (cancelled) return;
@@ -48,10 +47,15 @@ export function AccountSettings({ localComputeTarget }: Props) {
           }
         });
     }).then((unlisten) => {
-      if (cancelled) unlisten();
+      if (cancelled) {
+        unlisten();
+      } else {
+        unlistenAuthCallback = unlisten;
+      }
     });
     return () => {
       cancelled = true;
+      unlistenAuthCallback?.();
     };
   }, []);
 
@@ -59,12 +63,9 @@ export function AccountSettings({ localComputeTarget }: Props) {
     setAuthMessage(null);
     setAuthLoading(true);
     try {
-      const supabaseBaseUrl = normalizeSupabaseBaseUrl(
-        serverMode === 'hosted' ? serverUrl : HOSTED_RUNTIME_URL
-      );
       await beginSupabaseOAuth({
         provider,
-        supabaseBaseUrl,
+        supabaseBaseUrl: undefined,
         callbackMode: 'desktop',
       });
     } catch (error) {

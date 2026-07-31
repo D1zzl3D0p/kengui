@@ -8,6 +8,7 @@ export interface StoredAuthSession {
   expiresAt: number;
   email: string | null;
   provider: string | null;
+  authOrigin?: string;
 }
 
 export interface SecureSessionStore {

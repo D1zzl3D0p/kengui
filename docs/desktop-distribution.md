@@ -11,6 +11,18 @@ The default GitHub desktop build is the FOSS profile: it exposes local and
 external runtimes only. Hosted/cloud mode is hidden unless the build sets
 `VITE_KENGUI_ENABLE_HOSTED=true`.
 
+The current `.github/workflows/desktop-release.yml` intentionally remains that
+FOSS release pipeline. `.github/workflows/desktop-cloud-build.yml` is the
+manual cloud-enabled pipeline. It maps the paired public GitHub Actions
+variables `KENGUI_SUPABASE_URL` and `KENGUI_SUPABASE_ANON_KEY` into the Vite
+build, plus the separate `KENGUI_HOSTED_URL` and
+`KENGUI_CLOUD_FUNCTIONS_URL` variables used for runtime/Edge Function traffic.
+The Auth URL and public key must belong to the same Supabase project; the hosted
+runtime URL must not be substituted as the Auth origin. Missing Auth
+configuration fails the workflow preflight and is also rejected by the client.
+Because Vite embeds these values, changing them requires rebuilding and
+releasing Kengui.
+
 The app icon source is `assets/app-icon.svg`. Regenerate desktop icons with:
 
 ```bash

@@ -63,6 +63,8 @@ struct AuthSession {
     expires_at: i64,
     email: Option<String>,
     provider: Option<String>,
+    #[serde(default)]
+    auth_origin: Option<String>,
 }
 
 #[derive(serde::Serialize)]

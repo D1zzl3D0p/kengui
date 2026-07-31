@@ -1,0 +1,117 @@
+name: Desktop cloud build
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release, e.g. v0.1.0. Leave empty for artifact-only cloud builds."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build cloud ${{ matrix.platform }}
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos-latest, ubuntu-22.04, windows-latest]
+    env:
+      VITE_KENGUI_ENABLE_HOSTED: "true"
+      VITE_KENGUI_ENABLE_CLOUD: "true"
+      VITE_SUPABASE_URL: ${{ vars.KENGUI_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ vars.KENGUI_SUPABASE_ANON_KEY }}
+      VITE_KENGUI_HOSTED_URL: ${{ vars.KENGUI_HOSTED_URL }}
+      VITE_KENKUI_CLOUD_FUNCTIONS_URL: ${{ vars.KENGUI_CLOUD_FUNCTIONS_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Validate cloud build configuration
+        shell: bash
+        run: |
+          required=(
+            VITE_SUPABASE_URL
+            VITE_SUPABASE_ANON_KEY
+            VITE_KENGUI_HOSTED_URL
+            VITE_KENKUI_CLOUD_FUNCTIONS_URL
+          )
+          for name in "${required[@]}"; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not configured"
+              exit 1
+            fi
+          done
+          if [ "${#VITE_SUPABASE_ANON_KEY}" -lt 20 ] || [[ "$VITE_SUPABASE_ANON_KEY" == *"*"* ]]; then
+            echo "::error::VITE_SUPABASE_ANON_KEY is masked or malformed"
+            exit 1
+          fi
+          case "$VITE_SUPABASE_ANON_KEY" in
+            sb_publishable_*|eyJ*) ;;
+            *)
+              echo "::error::VITE_SUPABASE_ANON_KEY must be a public publishable or legacy anon key"
+              exit 1
+              ;;
+          esac
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux Tauri dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Typecheck and test
+        run: npm run typecheck && npm test -- --run
+
+      - name: Build cloud desktop bundles for release
+        if: github.event.inputs.tag != ''
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.event.inputs.tag }}
+          releaseName: "Kengui Cloud ${{ github.event.inputs.tag }}"
+          releaseBody: "Cloud-enabled desktop bundles for macOS, Windows, and Linux."
+          releaseDraft: true
+          prerelease: false
+
+      - name: Build cloud desktop bundles for artifact-only run
+        if: github.event.inputs.tag == ''
+        run: npm run desktop:build
+
+      - name: Upload cloud bundle artifacts
+        if: github.event.inputs.tag == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: kengui-cloud-${{ runner.os }}-bundles
+          path: |
+            src-tauri/target/release/bundle/**/*.dmg
+            src-tauri/target/release/bundle/**/*.app.tar.gz
+            src-tauri/target/release/bundle/**/*.msi
+            src-tauri/target/release/bundle/**/*.exe
+            src-tauri/target/release/bundle/**/*.AppImage
+            src-tauri/target/release/bundle/**/*.deb
+            src-tauri/target/release/bundle/**/*.rpm
+          if-no-files-found: error

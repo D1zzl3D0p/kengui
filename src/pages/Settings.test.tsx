@@ -20,9 +20,11 @@ import {
 import { useProviderModels } from '../hooks/useProviderModels';
 import {
   clearAuthSession,
+  exchangeSupabaseCode,
   loadAuthSessionSummary,
 } from '../auth/supabase';
 import { beginSupabaseOAuth } from '../auth/oauthStart';
+import { deepLinks } from '../platform';
 
 vi.mock('../runtime/runtime', () => ({
   createRuntimeAdapter: vi.fn(),
@@ -61,6 +63,22 @@ vi.mock('../auth/oauthStart', () => ({
   beginSupabaseOAuth: vi.fn(),
 }));
 
+vi.mock('../platform', () => ({
+  deepLinks: {
+    onAuthCallback: vi.fn(),
+  },
+  nativeStore: {
+    loadSettings: vi.fn(() => Promise.resolve({
+      serverMode: 'local',
+      serverUrl: 'http://localhost:45365',
+      authMode: 'none',
+      computeTarget: 'local',
+      lastConnectedAt: null,
+    })),
+    saveSettings: vi.fn(() => Promise.resolve()),
+  },
+}));
+
 const runtime = {
   health: vi.fn(),
   status: vi.fn(),
@@ -78,7 +96,9 @@ const mockSupportsProviderModels = supportsProviderModels as ReturnType<typeof v
 const mockSupportsProviderCredentials = supportsProviderCredentials as ReturnType<typeof vi.fn>;
 const mockLoadAuthSessionSummary = loadAuthSessionSummary as ReturnType<typeof vi.fn>;
 const mockClearAuthSession = clearAuthSession as ReturnType<typeof vi.fn>;
+const mockExchangeSupabaseCode = exchangeSupabaseCode as ReturnType<typeof vi.fn>;
 const mockBeginSupabaseOAuth = beginSupabaseOAuth as ReturnType<typeof vi.fn>;
+const mockOnAuthCallback = deepLinks.onAuthCallback as ReturnType<typeof vi.fn>;
 
 function renderSettings() {
   return render(
@@ -206,7 +226,15 @@ beforeEach(() => {
   mockTestProviderCredentials.mockResolvedValue({ status: 'ok', message: 'Validated' });
   mockLoadAuthSessionSummary.mockResolvedValue(null);
   mockClearAuthSession.mockResolvedValue(undefined);
+  mockExchangeSupabaseCode.mockResolvedValue({
+    accessToken: 'access-token',
+    refreshToken: 'refresh-token',
+    expiresAt: 123,
+    email: 'reader@example.com',
+    provider: 'github',
+  });
   mockBeginSupabaseOAuth.mockResolvedValue(undefined);
+  mockOnAuthCallback.mockResolvedValue(() => {});
   Object.assign(navigator, {
     clipboard: {
       writeText: vi.fn().mockResolvedValue(undefined),
@@ -246,15 +274,15 @@ describe('Settings', () => {
 
     expect(beginSupabaseOAuth).toHaveBeenCalledWith({
       provider: 'github',
-      supabaseBaseUrl: 'http://127.0.0.1:54321',
+      supabaseBaseUrl: undefined,
       callbackMode: 'desktop',
     });
   });
 
-  it('uses the active hosted URL when signing in from settings', async () => {
+  it('delegates auth-origin resolution instead of passing the active hosted runtime URL', async () => {
     useConnectionStore.setState({
       serverMode: 'hosted',
-      serverUrl: 'http://127.0.0.1:54321',
+      serverUrl: 'https://runtime.example.test',
       computeTarget: 'kenkui-cloud',
     });
     renderSettings();
@@ -264,7 +292,7 @@ describe('Settings', () => {
 
     expect(beginSupabaseOAuth).toHaveBeenCalledWith({
       provider: 'github',
-      supabaseBaseUrl: 'http://127.0.0.1:54321',
+      supabaseBaseUrl: undefined,
       callbackMode: 'desktop',
     });
   });
@@ -284,6 +312,38 @@ describe('Settings', () => {
     await userEvent.click(screen.getByRole('button', { name: /continue with github/i }));
 
     expect(await screen.findByText(/local kengui cloud sign in requires the tauri app/i)).toBeInTheDocument();
+  });
+
+  it('unsubscribes the cloud account auth callback listener on unmount', async () => {
+    const unlisten = vi.fn();
+    mockOnAuthCallback.mockResolvedValue(unlisten);
+    useConnectionStore.setState({ computeTarget: 'kenkui-cloud' });
+
+    const { unmount } = renderSettings();
+    await screen.findByRole('heading', { name: /cloud account/i });
+    await vi.waitFor(() => expect(mockOnAuthCallback).toHaveBeenCalled());
+    unmount();
+
+    expect(unlisten).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores cloud auth callbacks that arrive after unmount', async () => {
+    const callbacks: Array<(url: string) => void> = [];
+    mockOnAuthCallback.mockImplementation((handler) => {
+      callbacks.push(handler);
+      return Promise.resolve(() => {});
+    });
+    useConnectionStore.setState({ computeTarget: 'kenkui-cloud' });
+
+    const { unmount } = renderSettings();
+    await screen.findByRole('heading', { name: /cloud account/i });
+    await vi.waitFor(() => expect(callbacks).toHaveLength(1));
+    unmount();
+    const staleCallback = callbacks[0];
+    if (!staleCallback) throw new Error('Expected auth callback to be registered.');
+    staleCallback('http://127.0.0.1:49152/auth/callback?code=stale-code');
+
+    expect(exchangeSupabaseCode).not.toHaveBeenCalled();
   });
 
   it('shows signed in cloud account state and supports sign out', async () => {
@@ -385,7 +445,7 @@ describe('Settings', () => {
     await userEvent.click(screen.getByRole('button', { name: /save settings/i }));
 
     expect(runtime.stop).toHaveBeenCalled();
-    expect(useConnectionStore.getState().serverMode).toBe('external');
+    await vi.waitFor(() => expect(useConnectionStore.getState().serverMode).toBe('external'));
   });
 
   it('edits and saves structured config fields', async () => {
