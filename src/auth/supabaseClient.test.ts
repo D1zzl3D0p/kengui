@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const createClient = vi.fn(() => ({ auth: {} }));
+const createClient = vi.fn((..._a: unknown[]) => ({ auth: {} }));
 vi.mock('@supabase/supabase-js', () => ({ createClient: (...a: unknown[]) => createClient(...a) }));
 vi.mock('../platform', () => ({ secureKv: { getItem: vi.fn(), setItem: vi.fn(), removeItem: vi.fn() } }));
 

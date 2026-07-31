@@ -59,7 +59,7 @@ async function persist(map: Record<string, string>): Promise<void> {
 export const secureKv: SecureKvStorage = {
   async getItem(key) {
     const map = await hydrate();
-    return key in map ? map[key] : null;
+    return map[key] ?? null;
   },
   async setItem(key, value) {
     const map = await hydrate();

@@ -40,7 +40,8 @@ async function fetchHealth(serverUrl: string, mode: ServerMode): Promise<Runtime
   if ((res.status === 401 || res.status === 403) && useConnectionStore.getState().authMode === 'supabase') {
     const refreshed = await refreshSupabaseSession();
     if (refreshed) {
-      headers.set('Authorization', `Bearer ${refreshed.accessToken}`);
+      const token = await getAccessToken();
+      if (token) headers.set('Authorization', `Bearer ${token}`);
       res = await fetch(`${resolveServerBaseUrl(serverUrl, mode)}/health`, { headers });
     }
   }

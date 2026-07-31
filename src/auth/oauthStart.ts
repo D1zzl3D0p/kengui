@@ -1,5 +1,5 @@
 import {
-  createSupabaseOAuthUrl,
+  startSupabaseOAuth,
   supabaseConfigured,
   supabaseProviderCallbackUrl,
   type SupabaseOAuthProvider,
@@ -13,16 +13,14 @@ export type OAuthCallbackMode = 'browser' | 'desktop';
 
 export async function beginSupabaseOAuth(options: {
   provider: SupabaseOAuthProvider;
-  supabaseBaseUrl?: string | undefined;
   callbackMode?: OAuthCallbackMode;
   requireNativeCallbackForLocalhost?: boolean;
 }): Promise<void> {
   const {
     provider,
-    supabaseBaseUrl,
     callbackMode = options.requireNativeCallbackForLocalhost ? 'desktop' : 'browser',
   } = options;
-  if (!supabaseConfigured(supabaseBaseUrl)) {
+  if (!supabaseConfigured()) {
     throw new Error('Supabase auth is not configured for this build.');
   }
 
@@ -32,15 +30,13 @@ export async function beginSupabaseOAuth(options: {
     throw new Error(LOCAL_HOSTED_AUTH_MESSAGE);
   }
 
-  const oauthUrl = await createSupabaseOAuthUrl(provider, redirectTo ?? undefined, supabaseBaseUrl);
+  const oauthUrl = await startSupabaseOAuth(provider, redirectTo ?? undefined);
   if (import.meta.env.DEV) {
-    const parsed = new URL(oauthUrl);
     console.debug('Starting Supabase OAuth', {
       provider,
-      supabaseOrigin: parsed.origin,
-      providerCallbackUrl: supabaseProviderCallbackUrl(supabaseBaseUrl),
+      supabaseOrigin: new URL(oauthUrl).origin,
+      providerCallbackUrl: supabaseProviderCallbackUrl(),
       callbackMode,
-      redirectTo: parsed.searchParams.get('redirect_to') ?? 'browser-origin',
     });
   }
   await externalUrl.openExternalUrl(oauthUrl);

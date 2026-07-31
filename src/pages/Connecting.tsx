@@ -128,7 +128,6 @@ export default function Connecting() {
     try {
       await beginSupabaseOAuth({
         provider,
-        supabaseBaseUrl: undefined,
         callbackMode: selectedMode === 'hosted' ? 'desktop' : 'browser',
       });
     } catch (error) {

@@ -65,7 +65,6 @@ export function AccountSettings({ localComputeTarget }: Props) {
     try {
       await beginSupabaseOAuth({
         provider,
-        supabaseBaseUrl: undefined,
         callbackMode: 'desktop',
       });
     } catch (error) {

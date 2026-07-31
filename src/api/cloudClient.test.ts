@@ -81,11 +81,9 @@ describe('cloud client', () => {
       .mockResolvedValueOnce('expired-token')
       .mockResolvedValueOnce('fresh-token');
     vi.mocked(refreshSupabaseSession).mockResolvedValue({
-      accessToken: 'fresh-token',
-      refreshToken: 'refresh-token',
-      expiresAt: 123,
       email: 'reader@example.com',
       provider: 'google',
+      expiresAt: 123,
     });
     fetchMock
       .mockResolvedValueOnce(new Response('expired', { status: 401 }))
