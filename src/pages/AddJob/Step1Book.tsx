@@ -57,7 +57,10 @@ export default function Step1Book({ onNext }: Props) {
       const parsed = await parseBook(selected);
       setBook(parsed);
     } catch (err) {
-      const detail = err instanceof Error && err.message ? extractDetail(err.message) : null;
+      // Tauri commands reject with plain strings (AppError serializes to its
+      // Display output), so accept both Error and string rejections here.
+      const message = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+      const detail = message ? extractDetail(message) : null;
       setError(detail ?? 'Failed to parse ebook. Make sure the file is a valid EPUB, MOBI, AZW, or FB2.');
     } finally {
       setLoading(false);

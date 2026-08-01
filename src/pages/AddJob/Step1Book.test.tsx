@@ -97,6 +97,21 @@ describe('Step1Book', () => {
     });
   });
 
+  it('surfaces plain-string rejections from Tauri commands', async () => {
+    vi.mocked(pickBookFile).mockResolvedValue('/path/to/book.epub');
+    vi.mocked(booksApi.parseBook).mockRejectedValue(
+      'Signed upload request failed: error sending request'
+    );
+
+    render(<Step1Book onNext={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /choose file/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Signed upload request failed/)).toBeInTheDocument();
+    });
+  });
+
   it('falls back to generic message when error has no message', async () => {
     vi.mocked(pickBookFile).mockResolvedValue('/path/to/book.epub');
     vi.mocked(booksApi.parseBook).mockRejectedValue(new Error());
