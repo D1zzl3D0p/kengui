@@ -28,3 +28,6 @@ src-tauri/target/
 
 # Generated API contract (derived build artifact, never committed)
 src/api/generated/
+
+# Supabase CLI local state (project link temp)
+supabase/.temp/
