@@ -1,8 +1,8 @@
 # Kengui
 
-Kengui is the Tauri GUI client for the `kenkui` audiobook generation ecosystem.
-The app is intentionally a thin desktop/mobile shell around a React UI and a
-versioned `kenkui` API.
+Kengui is the web and Tauri GUI client for the `kenkui` audiobook generation
+ecosystem. The website and desktop application are thin platform shells around
+one shared React application and a versioned `kenkui` API.
 
 ## Product Boundary
 
@@ -20,9 +20,17 @@ versioned `kenkui` API.
 
 ## Development
 
+The repository is organized as:
+
+- `apps/web`: website entry point and Vite configuration.
+- `apps/desktop`: desktop entry point and Tauri/Rust shell.
+- `packages/app`: shared application behavior.
+- `packages/platform`: browser/native capability adapters.
+- `packages/ui`: shared visual primitives.
+
 ```bash
 rtk npm install
-rtk npm run dev
+rtk npm run dev:web
 rtk npm run tauri -- dev
 ```
 

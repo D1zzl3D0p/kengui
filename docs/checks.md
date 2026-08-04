@@ -10,13 +10,13 @@ The check script currently covers:
 
 - TypeScript type checking.
 - Vitest unit tests.
-- Production Vite build.
+- Production website and desktop Vite builds.
 - Rust `cargo check` for the Tauri shell.
 
 Regenerate the server contract snapshot after changing `kenkui` routes:
 
 ```bash
-rtk npm run contract:openapi
+rtk npm run contract:generate
 ```
 
 Future additions should include Rust tests, generated TypeScript API client

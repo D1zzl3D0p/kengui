@@ -1,5 +1,9 @@
 # Cloud Auth: supabase-js Migration + Fixed Hosted Project — Implementation Plan
 
+> Historical layout note: this completed plan predates the monorepo migration.
+> Paths beginning with `src/` now live under `packages/app/src/`, and
+> `src-tauri/` now lives under `apps/desktop/src-tauri/`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace Kengui's hand-rolled Supabase PKCE auth with `@supabase/supabase-js`, fix the missing `apikey` header on cloud calls, and lock "Kengui Cloud" to a single fixed hosted project so auth and runtime origins can never diverge.

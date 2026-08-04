@@ -1,7 +1,19 @@
 # Kengui Architecture
 
-Kengui is a thin Tauri shell around a rich React UI. It should behave like a
-client of `kenkui`, not like a second implementation of audiobook processing.
+Kengui ships a website and a thin Tauri desktop shell around one shared React
+application. Both should behave like clients of `kenkui`, not like second
+implementations of audiobook processing.
+
+## Repository Layout
+
+- `apps/web`: browser entry point and website build configuration.
+- `apps/desktop`: desktop entry point, Tauri configuration, Rust commands, and
+  native capabilities.
+- `packages/app`: shared product workflows, routes, state, API clients, and
+  application-specific components.
+- `packages/platform`: the browser/native capability boundary. This is the only
+  shared package that may import `@tauri-apps/*`.
+- `packages/ui`: platform-independent visual primitives.
 
 ## Layering
 
@@ -10,9 +22,8 @@ client of `kenkui`, not like a second implementation of audiobook processing.
 - **API client**: typed HTTP calls to the active server runtime.
 - **Runtime adapters**: choose between local sidecar, external server, and hosted
   service.
-- **Platform adapters**: the only React-side modules that may import Tauri APIs.
-  UI, stores, runtime code, and API clients should call `src/platform` wrappers
-  instead of importing `@tauri-apps/*` directly.
+- **Platform adapters**: UI, stores, runtime code, and API clients call
+  `packages/platform` wrappers instead of importing `@tauri-apps/*` directly.
 - **Tauri commands**: process supervision, native dialogs, diagnostics, and
   secure storage integration.
 - **Server**: queueing, worker execution, local/remote compute, artifacts, and
@@ -30,9 +41,10 @@ Build profiles should toggle adapters and capabilities, not fork product logic.
 
 ## Contracts
 
-The intended source of truth for server shapes is `kenkui` OpenAPI under `/v1`.
-Until generation is wired in, local TypeScript interfaces in `src/api` must be
-treated as temporary mirrors and covered by tests.
+The source of truth for server shapes is `kenkui` OpenAPI under `/v1`.
+`npm run contract:generate` writes the derived TypeScript contract under
+`packages/app/src/api/generated`; local ergonomic types build on that generated
+contract and remain covered by tests.
 
 ## Security Defaults
 

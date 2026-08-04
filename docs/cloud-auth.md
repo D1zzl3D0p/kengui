@@ -8,14 +8,14 @@ Kengui.
 ## Auth client
 
 Kengui delegates the OAuth/PKCE flow to `@supabase/supabase-js`
-(`src/auth/supabaseClient.ts`), configured with `flowType: 'pkce'`,
+(`packages/app/src/auth/supabaseClient.ts`), configured with `flowType: 'pkce'`,
 `detectSessionInUrl: false` (the desktop app receives the callback over a
 loopback/deep link, not a web redirect), and `autoRefreshToken: true`. Session
 state (including the refresh token and the transient PKCE code-verifier) is
 persisted through the `secureKv` adapter, which stores a single JSON blob in the
-OS keychain (`src-tauri/src/lib.rs`) with a `localStorage` fallback on platforms
+OS keychain (`apps/desktop/src-tauri/src/lib.rs`) with a `localStorage` fallback on platforms
 without native keychain support. The client library attaches the `apikey` header
-to every request automatically; `src/api/cloudClient.ts` also sets it explicitly
+to every request automatically; `packages/app/src/api/cloudClient.ts` also sets it explicitly
 on Edge Function calls.
 
 "Kengui Cloud" targets **one fixed hosted project**. The Supabase Auth origin,

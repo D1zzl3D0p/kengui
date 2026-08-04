@@ -4,7 +4,7 @@
  *
  * Runs the pinned kenkui's `python -m kenkui.server.openapi` to dump the live
  * FastAPI OpenAPI schema, then feeds it through `openapi-typescript` to produce
- * TypeScript API types. The output lives in `src/api/generated/` which is
+ * TypeScript API types. The output lives in `packages/app/src/api/generated/` which is
  * git-ignored: the contract is a derived build artifact that can never go stale
  * relative to the kenkui version it was generated from. Nothing Python ships in
  * the app bundle -- this script only runs on the build/dev machine.
@@ -31,7 +31,7 @@ const repoRoot = resolve(scriptDir, '..');
 const kenkuiSrc = process.env.KENKUI_SRC
   ? resolve(process.env.KENKUI_SRC)
   : resolve(repoRoot, '..', 'kenkui', 'src');
-const outDir = resolve(repoRoot, 'src', 'api', 'generated');
+const outDir = resolve(repoRoot, 'packages', 'app', 'src', 'api', 'generated');
 
 function pythonCandidates() {
   if (process.env.KENKUI_PYTHON) return [process.env.KENKUI_PYTHON];

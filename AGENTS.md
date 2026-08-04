@@ -1,7 +1,7 @@
 # AI Guide for `kengui`
 
-This repository is the Tauri GUI client for `kenkui`. Keep it small, typed, and
-debuggable.
+This repository contains the web and Tauri GUI clients for `kenkui`. Keep the
+platform shells small, typed, and debuggable.
 
 ## Product Boundary
 
@@ -27,7 +27,8 @@ debuggable.
 - `external`: user-supplied or self-hosted server URL.
 - `hosted`: Kengui-operated service with entitlements.
 
-The React app talks to a runtime adapter, not directly to Tauri commands. Rust
+The shared React app in `packages/app` talks to `packages/platform`, not directly
+to Tauri commands. `apps/web` and `apps/desktop` own platform bootstrapping; Rust
 commands should remain a narrow capability surface for process supervision and
 diagnostics.
 

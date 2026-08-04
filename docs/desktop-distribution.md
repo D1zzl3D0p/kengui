@@ -37,7 +37,7 @@ npm run check
 npm run desktop:build
 ```
 
-Tauri writes bundles under `src-tauri/target/release/bundle/`.
+Tauri writes bundles under `apps/desktop/src-tauri/target/release/bundle/`.
 
 ## Local kenkui runtime bootstrap
 
@@ -106,8 +106,8 @@ key rotation plan exist.
 Before tagging a release:
 
 1. Update `package.json` `version`.
-2. Update `src-tauri/tauri.conf.json` `version` to the same semver.
-3. Update `src-tauri/Cargo.toml` `version` if the Rust crate version should
+2. Update `apps/desktop/src-tauri/tauri.conf.json` `version` to the same semver.
+3. Update `apps/desktop/src-tauri/Cargo.toml` `version` if the Rust crate version should
    track the app release.
 4. Run `npm run check`.
 5. Create and push the tag:

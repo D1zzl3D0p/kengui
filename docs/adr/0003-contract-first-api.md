@@ -17,5 +17,5 @@ should generate or contract-test its TypeScript API client from that schema.
 ## Consequences
 
 - API drift becomes visible in CI.
-- Hand-written DTOs in `src/api` are temporary.
+- Hand-written DTOs in `packages/app/src/api` are temporary.
 - Server compatibility changes require explicit versioning.

@@ -10,7 +10,7 @@ lerna-debug.log*
 node_modules/
 dist/
 dist-ssr
-src-tauri/target/
+apps/desktop/src-tauri/target/
 .worktrees/
 .hermes/
 *.local
@@ -27,7 +27,7 @@ src-tauri/target/
 *.sw?
 
 # Generated API contract (derived build artifact, never committed)
-src/api/generated/
+packages/app/src/api/generated/
 
 # Supabase CLI local state (project link temp)
 supabase/.temp/

@@ -1,5 +1,9 @@
 # Report: "Invalid API key" when connecting Kengui to hosted kenkui-cloud
 
+> Historical layout note: this investigation predates the monorepo migration.
+> Paths beginning with `src/` now live under `packages/app/src/`, and
+> `src-tauri/` now lives under `apps/desktop/src-tauri/`.
+
 _Investigation date: 2026-07-31. Branch: `feature/kengui-app`._
 
 ## TL;DR

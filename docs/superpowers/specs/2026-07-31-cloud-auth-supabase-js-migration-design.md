@@ -1,5 +1,9 @@
 # Design: supabase-js migration + fixed hosted project
 
+> Historical layout note: this design predates the monorepo migration. Paths
+> beginning with `src/` now live under `packages/app/src/`, and `src-tauri/` now
+> lives under `apps/desktop/src-tauri/`.
+
 _Date: 2026-07-31 · Branch: `feature/kengui-app`_
 
 ## Problem
