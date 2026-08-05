@@ -8,7 +8,7 @@ export const HOSTED_RUNTIME_URL =
   'https://api.kengui.app';
 export const CLOUD_COMPUTE_ENABLED =
   import.meta.env.VITE_KENGUI_ENABLE_CLOUD === 'true' || HOSTED_RUNTIME_ENABLED;
-export const HIGH_LOCAL_WORKER_WARNING_THRESHOLD = 4;
+export const HIGH_LOCAL_WORKER_WARNING_THRESHOLD = 16;
 export const CLOUD_AUTH_PROVIDERS: { provider: SupabaseOAuthProvider; label: string }[] = [
   { provider: 'google', label: 'Google' },
   { provider: 'github', label: 'GitHub' },
