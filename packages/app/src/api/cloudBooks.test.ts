@@ -246,7 +246,7 @@ describe('getBookAnalysisCloud', () => {
       status: 'running', progress: { percent: 20, message: 'Cloud analysis is running' },
       runtimeStatus: {
         status: 'running', observedAt: '2026-08-04T01:00:00Z',
-        progress: { stage: 'nlp', percent: 20, updatedAt: '2026-08-04T00:59:50Z', ageSeconds: 10 },
+        progress: { stage: 'nlp', percent: 20, message: 'Analyzing book', updatedAt: '2026-08-04T00:59:50Z', ageSeconds: 10 },
         heartbeat: { at: '2026-08-04T00:59:58Z', ageSeconds: 2, timeoutSeconds: 30 },
         watchdog: { state: 'healthy' },
       },

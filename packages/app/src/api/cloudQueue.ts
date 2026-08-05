@@ -176,9 +176,10 @@ export function normalizeRuntimeStatus(value: unknown): RuntimeStatus | undefine
     }) : undefined,
     progress: progress ? compact({
       stage, percent: percentage(progress.percent),
-      message: stage && text(progress.message) ? PROGRESS_STAGE_MESSAGES[stage] : undefined,
+      message: text(progress.message) ?? (stage ? PROGRESS_STAGE_MESSAGES[stage] : undefined),
       updatedAt: timestamp(progress.updated_at),
       ageSeconds: nonnegative(progress.age_seconds),
+      etaSeconds: nonnegative(progress.eta_seconds),
     }) : undefined,
     heartbeat: heartbeat ? compact({
       at: timestamp(heartbeat.at), ageSeconds: nonnegative(heartbeat.age_seconds),
@@ -216,7 +217,7 @@ function mapCloudJob(row: CloudJobRow, detail?: CloudJobDetail): JobResponse {
     status,
     progress: status === 'completed' ? 1 : 0,
     current_chapter: cloudJobStatusMessage(providerStatus),
-    eta_seconds: 0,
+    eta_seconds: runtimeStatus?.progress?.etaSeconds ?? 0,
     error_message: status === 'failed'
       ? runtimeStatus?.failure?.message ?? 'Cloud job failed.'
       : '',

@@ -488,6 +488,24 @@ describe('Dashboard', () => {
     expect(screen.getByText('Selected voice is incompatible')).toBeInTheDocument();
   });
 
+  it('renders percent, chapter message, and ETA for a hosted processing job', async () => {
+    useConnectionStore.setState({ computeTarget: 'kenkui-cloud' });
+    const job = {
+      ...mockJob, eta_seconds: 180, runtimeStatus: {
+        status: 'running',
+        progress: { stage: 'tts_synthesis', percent: 52, message: 'Rendering chapter 14 of 27', etaSeconds: 180 },
+      },
+    };
+    vi.mocked(queueApi.fetchQueue).mockResolvedValue({
+      items: [job], current_item: job, pending_count: 0, completed_count: 0, failed_count: 0,
+    });
+    renderDashboard();
+
+    expect(await screen.findByText(/Rendering chapter 14 of 27/)).toBeInTheDocument();
+    expect(screen.getByText(/ETA: 3m 0s/)).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '52');
+  });
+
   it('never renders raw cloud legacy status or failure fallbacks', async () => {
     const secret = 'Bearer SECRET /Users/alice/private.epub';
     useConnectionStore.setState({ computeTarget: 'kenkui-cloud' });

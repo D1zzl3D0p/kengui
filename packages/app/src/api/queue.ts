@@ -28,7 +28,7 @@ export interface RuntimeStatus {
   status: string | null;
   observedAt?: string | undefined;
   attempt?: { current?: number | undefined; max?: number | undefined; nextAttemptAt?: string | undefined } | undefined;
-  progress?: { stage?: string | undefined; percent?: number | undefined; message?: string | undefined; updatedAt?: string | undefined; ageSeconds?: number | undefined } | undefined;
+  progress?: { stage?: string | undefined; percent?: number | undefined; message?: string | undefined; updatedAt?: string | undefined; ageSeconds?: number | undefined; etaSeconds?: number | undefined } | undefined;
   heartbeat?: { at?: string | undefined; ageSeconds?: number | undefined; timeoutSeconds?: number | undefined } | undefined;
   failure?: { code?: string | undefined; message?: string | undefined; retryable?: boolean | undefined } | undefined;
   watchdog?: { state: WatchdogState } | undefined;

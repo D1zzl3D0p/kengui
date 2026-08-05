@@ -206,14 +206,14 @@ describe('fetchCloudQueue runtime status mapping', () => {
     expect((await fetchCloudQueue()).items[0]?.runtimeStatus).toEqual({
       status: 'running', observedAt: '2026-08-04T01:00:00Z',
       attempt: { current: 2, max: 3, nextAttemptAt: '2026-08-04T01:01:00Z' },
-      progress: { stage: 'render', percent: 42, message: 'Rendering audiobook', updatedAt: '2026-08-04T00:59:42Z', ageSeconds: 18 },
+      progress: { stage: 'render', percent: 42, message: 'raw persisted text', updatedAt: '2026-08-04T00:59:42Z', ageSeconds: 18 },
       heartbeat: { at: '2026-08-04T00:59:56Z', ageSeconds: 4, timeoutSeconds: 60 },
       failure: { code: 'provider_unavailable', message: 'Provider temporarily unavailable', retryable: true },
       watchdog: { state: 'recovered_retrying' },
     });
   });
 
-  it('accepts the complete stable Edge vocabulary and derives curated messages', () => {
+  it('accepts the complete stable Edge vocabulary and derives curated messages when the server sends none', () => {
     const statuses = ['queued', 'running', 'completed', 'failed', 'cancel_requested', 'cancelled'];
     for (const status of statuses) {
       expect(normalizeRuntimeStatus({ status })?.status).toBe(status);
@@ -226,7 +226,7 @@ describe('fetchCloudQueue runtime status mapping', () => {
       cancelled: 'Runtime cancelled', failed: 'Runtime failed',
     };
     for (const [stage, message] of Object.entries(expectedStages)) {
-      expect(normalizeRuntimeStatus({ progress: { stage, message: 'untrusted' } })?.progress)
+      expect(normalizeRuntimeStatus({ progress: { stage } })?.progress)
         .toMatchObject({ stage, message });
     }
 
@@ -244,11 +244,11 @@ describe('fetchCloudQueue runtime status mapping', () => {
     }
   });
 
-  it('fails closed on unknown runtime strings and never retains adversarial text', () => {
+  it('fails closed on unknown runtime status/stage/failure strings and never retains adversarial text there', () => {
     const secret = 'Bearer token /Users/alice/private.epub payload excerpt';
     const normalized = normalizeRuntimeStatus({
       status: secret,
-      progress: { stage: secret, message: secret, percent: 20 },
+      progress: { stage: secret, percent: 20 },
       failure: { code: secret, message: secret, retryable: false },
     });
 
@@ -258,6 +258,16 @@ describe('fetchCloudQueue runtime status mapping', () => {
       failure: { code: 'unknown', message: 'Runtime failed', retryable: false },
     });
     expect(JSON.stringify(normalized)).not.toContain(secret);
+  });
+
+  it('trusts a server-supplied progress message verbatim, independent of stage validity', () => {
+    // progress.message is curated server-side (chapter counts / a fixed vocabulary — see
+    // kenkui-cloud status_projection.ts curatedProgressMessage), so kengui now passes it
+    // through as-is rather than re-deriving a generic stage message.
+    const normalized = normalizeRuntimeStatus({
+      progress: { stage: 'render', message: 'Rendering chapter 14 of 27', percent: 20 },
+    });
+    expect(normalized?.progress?.message).toBe('Rendering chapter 14 of 27');
   });
 
   it('fails closed on raw legacy cloud job status and failure strings', async () => {
@@ -287,6 +297,21 @@ describe('fetchCloudQueue runtime status mapping', () => {
       provider_status: 'failed', current_chapter: 'Failed',
       error_message: 'Provider temporarily unavailable',
     });
+  });
+
+  it('maps eta_seconds and the server progress message onto the job', async () => {
+    vi.mocked(cloudRequest).mockResolvedValueOnce({ jobs: [{
+      job_id: 'live', status: 'running',
+      runtime_status: {
+        status: 'running',
+        progress: { stage: 'tts_synthesis', percent: 52, message: 'Rendering chapter 14 of 27', eta_seconds: 180 },
+      },
+    }] });
+
+    const item = (await fetchCloudQueue()).items[0];
+    expect(item?.eta_seconds).toBe(180);
+    expect(item?.runtimeStatus?.progress?.percent).toBe(52);
+    expect(item?.runtimeStatus?.progress?.message).toBe('Rendering chapter 14 of 27');
   });
 
   it('preserves old responses and safely drops malformed runtime fields', async () => {
