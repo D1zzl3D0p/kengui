@@ -9,7 +9,7 @@ import { withCurrentOption } from '../../lib/selectOptions';
 import { useProviderModels } from '../../hooks/useProviderModels';
 import { supportsProviderModels, type RuntimeHealth } from '../../runtime/runtime';
 import { useConnectionStore } from '../../store/connection';
-import { HIGH_LOCAL_WORKER_WARNING_THRESHOLD } from './constants';
+import { shouldWarnHighWorkers } from './workerWarning';
 
 type ConfigForm = {
   default_voice: string;
@@ -104,10 +104,7 @@ export function ConfigSettings({ health, onWorkersChange }: Props) {
 
   const availableVoices = useMemo(() => voices.filter((voice) => !voice.excluded), [voices]);
   const configuredWorkers = Number(configForm.workers || 0);
-  const showHighWorkerWarning =
-    serverMode === 'local' &&
-    Number.isFinite(configuredWorkers) &&
-    configuredWorkers > HIGH_LOCAL_WORKER_WARNING_THRESHOLD;
+  const showHighWorkerWarning = shouldWarnHighWorkers(serverMode, configuredWorkers);
   const providerModelsSupported = supportsProviderModels(health);
   const providerModelsUnavailable =
     Boolean(health && !providerModelsSupported) ||
@@ -209,7 +206,7 @@ export function ConfigSettings({ health, onWorkersChange }: Props) {
 
       {showHighWorkerWarning && (
         <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Local workers is set to {configuredWorkers}. If synthesis fails with worker or pipe errors, restart the local runtime and lower workers to 4 or fewer before retrying.
+          Workers is set to {configuredWorkers}. Higher worker counts use more memory; if synthesis fails with worker or pipe errors, restart the local runtime and retry with a lower worker count.
         </p>
       )}
 
