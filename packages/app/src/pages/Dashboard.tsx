@@ -175,7 +175,7 @@ function normalizeCloudRuntimeForUi(value: JobResponse['runtimeStatus']): JobRes
     },
     progress: value.progress && {
       stage: value.progress.stage, percent: value.progress.percent,
-      message: value.progress.message ?? (value.progress.stage ? 'derive' : undefined),
+      message: value.progress.message,
       updated_at: value.progress.updatedAt, age_seconds: value.progress.ageSeconds,
     },
     heartbeat: value.heartbeat && {

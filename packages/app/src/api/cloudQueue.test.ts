@@ -263,11 +263,19 @@ describe('fetchCloudQueue runtime status mapping', () => {
   it('trusts a server-supplied progress message verbatim, independent of stage validity', () => {
     // progress.message is curated server-side (chapter counts / a fixed vocabulary — see
     // kenkui-cloud status_projection.ts curatedProgressMessage), so kengui now passes it
-    // through as-is rather than re-deriving a generic stage message.
+    // through as-is rather than re-deriving a generic stage message. Message must survive
+    // even when stage is unrecognized — the old code coupled stripping message to stripping
+    // an invalid stage; that coupling is intentionally gone.
     const normalized = normalizeRuntimeStatus({
-      progress: { stage: 'render', message: 'Rendering chapter 14 of 27', percent: 20 },
+      progress: { stage: 'not_a_real_stage', message: 'Rendering chapter 14 of 27', percent: 20 },
     });
+    expect(normalized?.progress?.stage).toBeUndefined();
     expect(normalized?.progress?.message).toBe('Rendering chapter 14 of 27');
+  });
+
+  it('falls back to the curated stage message only when the server sends no message', () => {
+    const normalized = normalizeRuntimeStatus({ progress: { stage: 'render', percent: 20 } });
+    expect(normalized?.progress?.message).toBe('Rendering audiobook');
   });
 
   it('fails closed on raw legacy cloud job status and failure strings', async () => {
