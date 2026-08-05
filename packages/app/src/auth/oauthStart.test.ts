@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { authCallback, externalUrl } from '../platform';
+import { authCallback, externalUrl, isTauriRuntime } from '../platform';
 import { startSupabaseOAuth, supabaseConfigured, supabaseProviderCallbackUrl } from './supabase';
 import { beginSupabaseOAuth, LOCAL_HOSTED_AUTH_MESSAGE } from './oauthStart';
 
@@ -10,6 +10,7 @@ vi.mock('../platform', () => ({
   externalUrl: {
     openExternalUrl: vi.fn(),
   },
+  isTauriRuntime: vi.fn(),
 }));
 
 vi.mock('./supabase', () => ({
@@ -25,6 +26,7 @@ beforeEach(() => {
   vi.mocked(startSupabaseOAuth).mockResolvedValue('http://127.0.0.1:54321/auth/v1/authorize');
   vi.mocked(authCallback.prepareAuthRedirectUrl).mockResolvedValue('http://127.0.0.1:49152/auth/callback');
   vi.mocked(externalUrl.openExternalUrl).mockResolvedValue(undefined);
+  vi.mocked(isTauriRuntime).mockReturnValue(true);
 });
 
 describe('beginSupabaseOAuth', () => {
@@ -35,7 +37,7 @@ describe('beginSupabaseOAuth', () => {
     expect(externalUrl.openExternalUrl).toHaveBeenCalledWith('http://127.0.0.1:54321/auth/v1/authorize');
   });
 
-  it('blocks desktop OAuth when the native callback is unavailable', async () => {
+  it('blocks desktop OAuth when the native callback is unavailable inside Tauri', async () => {
     vi.mocked(authCallback.prepareAuthRedirectUrl).mockResolvedValue(null);
 
     await expect(
@@ -44,6 +46,16 @@ describe('beginSupabaseOAuth', () => {
 
     expect(startSupabaseOAuth).not.toHaveBeenCalled();
     expect(externalUrl.openExternalUrl).not.toHaveBeenCalled();
+  });
+
+  it('downgrades desktop OAuth to the browser flow when not running in Tauri', async () => {
+    vi.mocked(isTauriRuntime).mockReturnValue(false);
+
+    await beginSupabaseOAuth({ provider: 'github', callbackMode: 'desktop' });
+
+    expect(authCallback.prepareAuthRedirectUrl).not.toHaveBeenCalled();
+    expect(startSupabaseOAuth).toHaveBeenCalledWith('github', undefined);
+    expect(externalUrl.openExternalUrl).toHaveBeenCalledWith('http://127.0.0.1:54321/auth/v1/authorize');
   });
 
   it('allows browser OAuth fallback without a native redirect', async () => {
