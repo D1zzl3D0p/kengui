@@ -184,7 +184,7 @@ export function ConfigSettings({ health, onWorkersChange }: Props) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="flex size-10 items-center justify-center rounded-md bg-muted text-primary">
-            <SlidersHorizontal className="size-5" aria-hidden="true" />
+            <SlidersHorizontal className="size-4" aria-hidden="true" />
           </div>
           <h2 className="text-2xl font-semibold">Config</h2>
         </div>

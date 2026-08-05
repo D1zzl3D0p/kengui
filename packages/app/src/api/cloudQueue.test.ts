@@ -168,6 +168,16 @@ describe('fetchCloudQueue runtime status mapping', () => {
     }
   );
 
+  it('hides purged jobs so a removed job does not reappear on the next poll', async () => {
+    vi.mocked(cloudRequest).mockResolvedValueOnce({ jobs: [
+      { job_id: 'live', status: 'running', runtime_status: { status: 'running' } },
+      { job_id: 'gone', status: 'purged', runtime_status: { status: 'purged' } },
+    ] });
+
+    const { items } = await fetchCloudQueue();
+    expect(items.map((item) => item.id)).toEqual(['live']);
+  });
+
   it('preserves queued attempt zero while requiring a positive maximum', async () => {
     vi.mocked(cloudRequest).mockResolvedValueOnce({ jobs: [{
       job_id: 'queued-zero', status: 'queued', runtime_status: {

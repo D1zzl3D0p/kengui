@@ -269,7 +269,10 @@ function bundleForJob(req: JobCreateRequest, sourceFilename: string) {
 
 export async function fetchCloudQueue(): Promise<QueueResponse> {
   const response = await cloudRequest<{ jobs: CloudJobRow[] }>('list-jobs?limit=50');
-  return summarizeCloudQueue(response.jobs.map((job) => mapCloudJob(job)));
+  // A purged job is one the user removed; the control plane still returns it,
+  // so drop it here or an optimistic removal reappears on the next poll.
+  const visible = response.jobs.filter((job) => job.status !== 'purged');
+  return summarizeCloudQueue(visible.map((job) => mapCloudJob(job)));
 }
 
 export async function createCloudJob(req: JobCreateRequest): Promise<JobResponse> {

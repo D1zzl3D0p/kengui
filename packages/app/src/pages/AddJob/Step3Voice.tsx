@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { Mic2, RefreshCw, UsersRound } from 'lucide-react';
+import { LoaderCircle, Mic2, RefreshCw, UsersRound } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { ModelCombobox } from '../../components/ModelCombobox';
 import { analyzeBook, fetchAnalysisCaches, type AnalysisCacheCandidate, type AnalysisCharacter, type AnalysisResult } from '../../api/books';
@@ -532,8 +532,15 @@ export default function Step3Voice({ filePath, bookId, onBack, onNext }: Props) 
         <Button variant="outline" onClick={onBack}>
           Back
         </Button>
-        <Button disabled={nextDisabled} onClick={handleNext}>
-          Next
+        <Button disabled={nextDisabled} aria-busy={loading} onClick={handleNext}>
+          {loading ? (
+            <>
+              <LoaderCircle className="animate-spin" aria-hidden="true" />
+              Loading…
+            </>
+          ) : (
+            'Next'
+          )}
         </Button>
       </div>
 

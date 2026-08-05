@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { LoaderCircle } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { filterChapters } from '../../api/books';
 import type { BookParseResponse, ChapterPreset } from '../../api/books';
@@ -103,9 +104,17 @@ export default function Step2Chapters({ book, onBack, onNext }: Props) {
         </Button>
         <Button
           disabled={loading}
+          aria-busy={loading}
           onClick={() => onNext({ chapterPreset: selectionPreset, chapterSelection: selection })}
         >
-          Next
+          {loading ? (
+            <>
+              <LoaderCircle className="animate-spin" aria-hidden="true" />
+              Loading…
+            </>
+          ) : (
+            'Next'
+          )}
         </Button>
       </div>
 

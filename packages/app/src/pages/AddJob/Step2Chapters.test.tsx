@@ -83,6 +83,27 @@ describe('Step2Chapters', () => {
     });
   });
 
+  it('shows a legible loading state on the forward button while the initial preset resolves', async () => {
+    let resolvePreset: (value: ChapterFilterResponse) => void = () => {};
+    mockFilterChapters.mockImplementation(
+      () => new Promise<ChapterFilterResponse>((resolve) => { resolvePreset = resolve; }),
+    );
+
+    render(<Step2Chapters book={mockBook} onBack={vi.fn()} onNext={vi.fn()} />);
+
+    // While the preset round-trip is in flight the forward button must read as
+    // busy (not a plain, seemingly-clickable "Next") and be disabled.
+    const loadingButton = screen.getByRole('button', { name: /loading/i });
+    expect(loadingButton).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /^next$/i })).not.toBeInTheDocument();
+
+    resolvePreset(makeFilterResponse([1, 2]));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^next$/i })).toBeEnabled();
+    });
+  });
+
   it('manual chapter edits are submitted as a custom selection', async () => {
     mockFilterChapters.mockResolvedValue(makeFilterResponse([1, 2]));
 

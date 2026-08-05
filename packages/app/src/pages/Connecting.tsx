@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Cloud, KeyRound, Laptop, LogIn, Server, ShieldCheck } from 'lucide-react';
+import { Cloud, KeyRound, Laptop, Server } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { ProviderSignInButtons } from '../components/ProviderSignInButtons';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { useConnectionStore, type ConnectionAuthMode, type ServerMode } from '../store/connection';
@@ -261,40 +262,30 @@ export default function Connecting() {
 
         {requiresAuth && (
           <section className="rounded-lg border bg-card p-5 shadow-sm">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex size-10 items-center justify-center rounded-md bg-muted text-primary">
-                  <KeyRound className="size-5" aria-hidden="true" />
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-10 items-center justify-center rounded-md bg-muted text-primary">
+                    <KeyRound className="size-4" aria-hidden="true" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold">Account</h2>
+                    <p className="text-sm text-muted-foreground">
+                      {authSession?.email
+                        ? `Signed in as ${authSession.email}`
+                        : 'Sign in with Google, GitHub, or Apple to use this runtime.'}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-xl font-semibold">Account</h2>
-                  <p className="text-sm text-muted-foreground">
-                    {authSession?.email
-                      ? `Signed in as ${authSession.email}`
-                      : 'Sign in with Google, GitHub, or Apple to use this runtime.'}
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {authSession ? (
-                  <Button variant="outline" onClick={signOut}>Sign out</Button>
-                ) : (
-                  <>
-                    <Button variant="outline" onClick={() => beginOAuth('google')}>
-                      <LogIn aria-hidden="true" />
-                      Google
-                    </Button>
-                    <Button variant="outline" onClick={() => beginOAuth('github')}>
-                      <LogIn aria-hidden="true" />
-                      GitHub
-                    </Button>
-                    <Button variant="outline" onClick={() => beginOAuth('apple')}>
-                      <ShieldCheck aria-hidden="true" />
-                      Apple
-                    </Button>
-                  </>
+                {authSession && (
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" onClick={signOut}>Sign out</Button>
+                  </div>
                 )}
               </div>
+              {!authSession && (
+                <ProviderSignInButtons onSelect={beginOAuth} disabled={connecting} />
+              )}
             </div>
             {authMessage && <p className="mt-3 text-sm text-destructive">{authMessage}</p>}
           </section>

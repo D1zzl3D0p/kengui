@@ -92,7 +92,7 @@ export function AccountSettings({ localComputeTarget }: Props) {
     <section className="flex flex-col gap-4 rounded-lg border bg-card p-5 shadow-[0_8px_24px_rgb(40_58_66_/_7%)]">
       <div className="flex items-center gap-3">
         <div className="flex size-10 items-center justify-center rounded-md bg-muted text-primary">
-          <KeyRound className="size-5" aria-hidden="true" />
+          <KeyRound className="size-4" aria-hidden="true" />
         </div>
         <div>
           <h2 className="text-2xl font-semibold">Cloud Account</h2>

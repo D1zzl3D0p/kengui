@@ -1,9 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useState, useRef, useEffect } from 'react';
-import { BookOpen, CirclePause, CirclePlay, FolderOpen, ListMusic, RotateCcw, X } from 'lucide-react';
+import { BookOpen, ChevronRight, CirclePause, CirclePlay, FolderOpen, ListMusic, RotateCcw, X } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { StatusBadge } from '../components/StatusBadge';
+import { RunHealthBadge } from '../components/RunHealthBadge';
 import { ProgressBar } from '../components/ProgressBar';
 import { Button } from '../components/ui/button';
 import {
@@ -115,16 +116,15 @@ function RuntimeDetails({ job }: { job: JobResponse }) {
     || runtime.status === 'failed'
     || runtime.watchdog?.state === 'recovered_failed';
 
+  const hasTelemetry =
+    (runtime.attempt?.current !== undefined && runtime.attempt.max !== undefined) ||
+    progressAge !== null ||
+    heartbeatAge !== null ||
+    retrySeconds !== null;
+  const latestMessage = runtime.progress?.message;
+
   return (
-    <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-      <div className="flex flex-wrap gap-x-4 gap-y-1" aria-live="off">
-        {runtime.attempt?.current !== undefined && runtime.attempt.max !== undefined && (
-          <span>Attempt {runtime.attempt.current} of {runtime.attempt.max}</span>
-        )}
-        {progressAge !== null && <span>Last progress {progressAge}s ago</span>}
-        {heartbeatAge !== null && <span>Worker heartbeat {heartbeatAge}s ago</span>}
-        {retrySeconds !== null && <span>Retry scheduled in {retrySeconds}s</span>}
-      </div>
+    <div className="flex flex-col gap-2 text-xs text-muted-foreground">
       {warning && (
         <p role="status" aria-live="polite" className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-800 dark:text-amber-200">
           {warning}
@@ -140,6 +140,25 @@ function RuntimeDetails({ job }: { job: JobResponse }) {
         <div className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-destructive">
           <span className="font-medium">Failure: watchdog recovery failed</span>
         </div>
+      )}
+      {hasTelemetry && (
+        <details className="group rounded-md border bg-background/40 px-3 py-2">
+          <summary className="flex cursor-pointer list-none items-center gap-1 font-medium text-foreground/80 [&::-webkit-details-marker]:hidden">
+            <ChevronRight className="size-3 transition-transform group-open:rotate-90" aria-hidden="true" />
+            Run details
+          </summary>
+          <div className="mt-2 flex flex-col gap-1" aria-live="off">
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              {runtime.attempt?.current !== undefined && runtime.attempt.max !== undefined && (
+                <span>Attempt {runtime.attempt.current} of {runtime.attempt.max}</span>
+              )}
+              {progressAge !== null && <span>Last progress {progressAge}s ago</span>}
+              {heartbeatAge !== null && <span>Worker heartbeat {heartbeatAge}s ago</span>}
+              {retrySeconds !== null && <span>Retry scheduled in {retrySeconds}s</span>}
+            </div>
+            {latestMessage && <p>Latest: {latestMessage}</p>}
+          </div>
+        </details>
       )}
     </div>
   );
@@ -401,7 +420,10 @@ function JobRow({ job: rawJob }: { job: JobResponse }) {
             )}
           </div>
         </div>
-        <StatusBadge status={job.status} />
+        <div className="flex shrink-0 items-center gap-2">
+          <RunHealthBadge runtime={job.runtimeStatus} />
+          <StatusBadge status={job.status} />
+        </div>
       </div>
 
       {(job.status === 'processing' || job.status === 'paused') && (
