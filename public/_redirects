@@ -1,0 +1,4 @@
+# SPA fallback: the app uses react-router BrowserRouter, so every non-asset
+# path must serve index.html (200, not a redirect) for deep links + refreshes.
+# Vite copies this file from public/ into dist/web at build time.
+/*    /index.html    200

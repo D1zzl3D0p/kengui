@@ -13,6 +13,7 @@ dist-ssr
 apps/desktop/src-tauri/target/
 .worktrees/
 .hermes/
+.wrangler/
 *.local
 
 # Editor directories and files

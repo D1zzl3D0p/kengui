@@ -13,6 +13,7 @@
     "build:web": "npm run typecheck && vite build --config apps/web/vite.config.ts",
     "build:desktop-ui": "npm run typecheck && vite build --config apps/desktop/vite.config.ts",
     "preview": "vite preview --config apps/web/vite.config.ts",
+    "pages:deploy": "npm run build:web && wrangler pages deploy",
     "tauri": "cd apps/desktop && tauri",
     "desktop:build": "cd apps/desktop && tauri build",
     "desktop:build:debug": "cd apps/desktop && tauri build --debug",

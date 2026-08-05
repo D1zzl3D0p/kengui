@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  // Cloudflare Pages project for the kengui web app.
+  // The web build is a static Vite/React SPA (see `npm run build:web`); Pages
+  // serves it for free with unlimited bandwidth. No Pages Functions are used.
+  "name": "kengui",
+  "compatibility_date": "2026-08-01",
+  // Directory `build:web` writes to (apps/web/vite.config.ts -> dist/web).
+  "pages_build_output_dir": "dist/web"
+}
