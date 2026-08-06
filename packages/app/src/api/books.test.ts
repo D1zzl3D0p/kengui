@@ -7,6 +7,10 @@ vi.mock('./cloudBooks', () => ({
   filterChaptersCloud: vi.fn(),
 }));
 
+vi.mock('../platform', () => ({
+  isBrowserFilePath: (path: string) => path.startsWith('browser-file:'),
+}));
+
 import { parseBookCloud, filterChaptersCloud } from './cloudBooks';
 
 const mockFetch = vi.fn();
@@ -50,6 +54,15 @@ describe('parseBook routing', () => {
 
     expect(parseBookCloud).toHaveBeenCalledWith('/books/great.epub');
     expect(result.book_id).toBe('book-1');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects browser-local files clearly for non-hosted servers', async () => {
+    useConnectionStore.setState({ serverMode: 'external' });
+
+    await expect(parseBook('browser-file:1/book.epub')).rejects.toThrow(
+      'Browser uploads require Kengui Cloud'
+    );
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });

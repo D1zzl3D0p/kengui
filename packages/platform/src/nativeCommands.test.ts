@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { nativeCommands } from './nativeCommands';
+import { registerBrowserFile } from './browserFiles';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
@@ -81,5 +82,54 @@ describe('nativeCommands', () => {
     vi.mocked(invoke).mockRejectedValue(new Error('spawn failed'));
 
     await expect(nativeCommands.spawnServer()).rejects.toThrow('spawn failed');
+  });
+
+  it('reads, hashes, and uploads browser-selected files without Tauri', async () => {
+    const file = new File(['browser book'], 'Browser Book.epub', { type: 'application/epub+zip' });
+    const path = registerBrowserFile(file);
+    const digest = new Uint8Array([0xde, 0xad, 0xbe, 0xef]).buffer;
+    const subtle = vi.spyOn(crypto.subtle, 'digest').mockResolvedValue(digest);
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
+
+    await expect(nativeCommands.fileStat(path)).resolves.toEqual({
+      path,
+      filename: 'Browser Book.epub',
+      byteSize: 12,
+      contentType: 'application/epub+zip',
+    });
+    await expect(nativeCommands.fileSha256(path)).resolves.toBe('deadbeef');
+    await nativeCommands.signedUploadFile({
+      path,
+      url: 'https://storage.example/upload',
+      contentType: 'application/epub+zip',
+    });
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith('https://storage.example/upload', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/epub+zip' },
+      body: file,
+    });
+    subtle.mockRestore();
+    fetchMock.mockRestore();
+  });
+
+  it('starts a browser download for browser save targets', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    await nativeCommands.signedDownloadFile({
+      url: 'https://storage.example/download?signature=abc',
+      outputPath: 'browser-download:Finished%20Book.m4b',
+    });
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(click).toHaveBeenCalledOnce();
+    const anchor = click.mock.instances[0];
+    expect(anchor).toMatchObject({
+      href: 'https://storage.example/download?signature=abc',
+      download: 'Finished Book.m4b',
+    });
+    expect(document.querySelector('a[download]')).toBeNull();
+    click.mockRestore();
   });
 });

@@ -19,7 +19,7 @@ import {
 } from '../api/queue';
 import type { JobResponse, QueueResponse } from '../api/queue';
 import { cloudJobStatusMessage, normalizeCloudJobProviderStatus, normalizeRuntimeStatus } from '../api/cloudQueue';
-import { nativeCommands } from '../platform';
+import { isTauriRuntime, nativeCommands } from '../platform';
 import { computeBackoffInterval, heartbeatHealthBucket, runtimeStatusFingerprint } from '../lib/pollingBackoff';
 import { useConnectionStore } from '../store/connection';
 import { CloudApiError } from '../api/cloudClient';
@@ -381,7 +381,12 @@ function JobRow({ job: rawJob }: { job: JobResponse }) {
       setActionError(null);
     },
     onError: (error) => {
-      setActionError(errorMessage(error, 'Failed to open output folder.'));
+      setActionError(errorMessage(
+        error,
+        computeTarget === 'kenkui-cloud'
+          ? 'Failed to download audiobook.'
+          : 'Failed to open output folder.'
+      ));
     },
   });
 
@@ -506,7 +511,7 @@ function JobRow({ job: rawJob }: { job: JobResponse }) {
             {retry.isPending ? 'Retrying...' : 'Retry'}
           </Button>
         )}
-        {job.status === 'completed' && job.output_path && (
+        {job.status === 'completed' && job.output_path && (cloudQueue || isTauriRuntime()) && (
           <Button
             size="sm"
             variant="outline"

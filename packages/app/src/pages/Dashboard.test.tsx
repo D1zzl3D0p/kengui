@@ -5,12 +5,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import Dashboard from './Dashboard';
 import * as queueApi from '../api/queue';
-import { nativeCommands } from '../platform';
+import { isTauriRuntime, nativeCommands } from '../platform';
 import { useConnectionStore } from '../store/connection';
 import { CloudApiError } from '../api/cloudClient';
 
 vi.mock('../api/queue');
 vi.mock('../platform', () => ({
+  isTauriRuntime: vi.fn(() => true),
   nativeCommands: {
     openOutputFolder: vi.fn(() => Promise.resolve()),
   },
@@ -51,6 +52,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   useConnectionStore.setState({ computeTarget: 'local' });
   vi.mocked(nativeCommands.openOutputFolder).mockResolvedValue(undefined);
+  vi.mocked(isTauriRuntime).mockReturnValue(true);
   vi.mocked(queueApi.fetchQueue).mockResolvedValue({
     items: [mockJob],
     current_item: mockJob,
@@ -272,6 +274,21 @@ describe('Dashboard', () => {
     expect(nativeCommands.openOutputFolder).toHaveBeenCalledWith('/books/Test Book.m4b');
   });
 
+  it('hides the native open action in a browser with local or external compute', async () => {
+    vi.mocked(isTauriRuntime).mockReturnValue(false);
+    vi.mocked(queueApi.fetchQueue).mockResolvedValue({
+      items: [{ ...mockJob, status: 'completed', output_path: '/server/books/Test Book.m4b' }],
+      current_item: null,
+      pending_count: 0,
+      completed_count: 1,
+      failed_count: 0,
+    });
+    renderDashboard();
+
+    await screen.findByText(/\/server\/books\/Test Book\.m4b/i);
+    expect(screen.queryByRole('button', { name: /^open$/i })).not.toBeInTheDocument();
+  });
+
   it('shows error message for failed jobs', async () => {
     vi.mocked(queueApi.fetchQueue).mockResolvedValue({
       items: [{ ...mockJob, status: 'failed', error_message: 'render failed' }],
@@ -380,7 +397,7 @@ describe('Dashboard', () => {
   it.each([
     ['cancel', 'processing', '', 'Failed to cancel job.'],
     ['remove', 'completed', 'cloud-job.m4b', 'Failed to remove job.'],
-    ['download', 'completed', 'cloud-job.m4b', 'Failed to open output folder.'],
+    ['download', 'completed', 'cloud-job.m4b', 'Failed to download audiobook.'],
   ] as const)('never renders cloud response text when %s fails', async (action, status, outputPath, fallback) => {
     const secret = `Bearer ${action.toUpperCase()}_SECRET /Users/alice/private.epub`;
     useConnectionStore.setState({ computeTarget: 'kenkui-cloud' });

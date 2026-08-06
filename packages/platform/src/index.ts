@@ -1,4 +1,5 @@
 export { authCallback, type NativeAuthCallback } from './authCallback';
+export { isBrowserFilePath } from './browserFiles';
 export { deepLinks, type DeepLinkEvents } from './deepLinks';
 export { externalUrl, type ExternalUrlOpener } from './externalUrl';
 export { nativeCommands, type NativeRuntimeCommands } from './nativeCommands';

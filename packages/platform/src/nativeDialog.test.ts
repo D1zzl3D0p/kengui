@@ -1,5 +1,5 @@
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { pickBookFile, saveM4bFile } from './nativeDialog';
 
@@ -12,6 +12,14 @@ describe('pickBookFile', () => {
   beforeEach(() => {
     vi.mocked(open).mockReset();
     vi.mocked(save).mockReset();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, '__TAURI_INTERNALS__');
   });
 
   it('returns a selected book path', async () => {
@@ -34,6 +42,27 @@ describe('pickBookFile', () => {
     await expect(pickBookFile()).resolves.toBeNull();
   });
 
+  it('uses a browser file input outside Tauri', async () => {
+    Reflect.deleteProperty(window, '__TAURI_INTERNALS__');
+    const file = new File(['book contents'], 'browser-book.epub', {
+      type: 'application/epub+zip',
+    });
+    const click = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function (this: HTMLInputElement) {
+      Object.defineProperty(this, 'files', {
+        configurable: true,
+        value: { item: (index: number) => index === 0 ? file : null },
+      });
+      this.dispatchEvent(new Event('change'));
+    });
+
+    const selection = await pickBookFile();
+
+    expect(selection).toMatch(/^browser-file:/);
+    expect(open).not.toHaveBeenCalled();
+    expect(document.querySelector('input[type="file"]')).toBeNull();
+    click.mockRestore();
+  });
+
   it('returns a selected M4B save path', async () => {
     vi.mocked(save).mockResolvedValue('/downloads/book.m4b');
 
@@ -42,6 +71,15 @@ describe('pickBookFile', () => {
       defaultPath: 'book.m4b',
       filters: [{ name: 'M4B Audiobook', extensions: ['m4b'] }],
     });
+  });
+
+  it('returns a browser download target outside Tauri', async () => {
+    Reflect.deleteProperty(window, '__TAURI_INTERNALS__');
+
+    await expect(saveM4bFile('browser-book.m4b')).resolves.toBe(
+      'browser-download:browser-book.m4b'
+    );
+    expect(save).not.toHaveBeenCalled();
   });
 
   it('returns null when the M4B save dialog is cancelled or unavailable', async () => {

@@ -1,6 +1,7 @@
 import { apiRequest } from './client';
 import { useConnectionStore } from '../store/connection';
 import { parseBookCloud, filterChaptersCloud } from './cloudBooks';
+import { isBrowserFilePath } from '../platform';
 import type { TaskResponse } from './tasks';
 import type { Schemas } from './schemas';
 
@@ -42,13 +43,20 @@ export type BookAnalyzeRequest = Omit<Schemas['BookAnalyzeRequest'], 'use_cache'
   use_cache?: boolean;
 };
 
-export const parseBook = (ebook_path: string): Promise<BookParseResponse> =>
-  useConnectionStore.getState().serverMode === 'hosted'
-    ? parseBookCloud(ebook_path)
-    : apiRequest<BookParseResponse>('/books/parse', {
-        method: 'POST',
-        body: JSON.stringify({ ebook_path }),
-      });
+export const parseBook = (ebook_path: string): Promise<BookParseResponse> => {
+  if (useConnectionStore.getState().serverMode === 'hosted') {
+    return parseBookCloud(ebook_path);
+  }
+  if (isBrowserFilePath(ebook_path)) {
+    return Promise.reject(new Error(
+      'Browser uploads require Kengui Cloud. Custom servers currently accept only files already available on the server.'
+    ));
+  }
+  return apiRequest<BookParseResponse>('/books/parse', {
+    method: 'POST',
+    body: JSON.stringify({ ebook_path }),
+  });
+};
 
 export const filterChapters = (
   book_hash: string,
