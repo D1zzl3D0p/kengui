@@ -26,6 +26,16 @@ const HOSTED_RUNTIME_URL =
   import.meta.env.VITE_SUPABASE_URL ||
   'https://api.kengui.app';
 
+const OAUTH_RETURN_MODE_KEY = 'kengui.oauth.returnMode';
+
+function pendingOAuthMode(): ServerMode | null {
+  if (typeof sessionStorage === 'undefined') return null;
+  const mode = sessionStorage.getItem(OAUTH_RETURN_MODE_KEY);
+  if (mode !== 'hosted' && mode !== 'external') return null;
+  sessionStorage.removeItem(OAUTH_RETURN_MODE_KEY);
+  return mode;
+}
+
 export default function Connecting() {
   const navigate = useNavigate();
   const {
@@ -38,8 +48,9 @@ export default function Connecting() {
     setComputeTarget,
     setConnectionError,
   } = useConnectionStore();
+  const [returnMode] = useState(pendingOAuthMode);
   const [selectedMode, setSelectedMode] = useState<ServerMode>(
-    serverMode === 'local' && !LOCAL_RUNTIME_ENABLED ? 'external' : serverMode
+    returnMode ?? (serverMode === 'local' && !LOCAL_RUNTIME_ENABLED ? 'external' : serverMode)
   );
   const [customUrl, setCustomUrl] = useState(
     serverMode === 'external' ? serverUrl : 'https://example.com'
@@ -123,12 +134,16 @@ export default function Connecting() {
 
   async function beginOAuth(provider: SupabaseOAuthProvider) {
     setAuthMessage(null);
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem(OAUTH_RETURN_MODE_KEY, selectedMode);
+    }
     try {
       await beginSupabaseOAuth({
         provider,
         callbackMode: selectedMode === 'hosted' ? 'desktop' : 'browser',
       });
     } catch (error) {
+      sessionStorage.removeItem(OAUTH_RETURN_MODE_KEY);
       setAuthMessage(error instanceof Error ? error.message : 'Could not start sign in.');
     }
   }

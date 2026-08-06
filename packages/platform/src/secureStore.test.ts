@@ -16,6 +16,7 @@ afterEach(() => vi.clearAllMocks());
 
 describe('secureKv', () => {
   it('hydrates from the keychain blob and reads a key', async () => {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
     invoke.mockImplementation((cmd: string) =>
       cmd === 'load_auth_session' ? Promise.resolve(JSON.stringify({ a: '1' })) : Promise.resolve());
     const kv = await freshKv();
@@ -24,6 +25,7 @@ describe('secureKv', () => {
   });
 
   it('persists the whole map as JSON on setItem', async () => {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
     invoke.mockResolvedValue(null);
     const kv = await freshKv();
     await kv.setItem('token', 'xyz');
@@ -31,6 +33,7 @@ describe('secureKv', () => {
   });
 
   it('clears the slot when the last key is removed', async () => {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
     invoke.mockImplementation((cmd: string) =>
       cmd === 'load_auth_session' ? Promise.resolve(JSON.stringify({ token: 'xyz' })) : Promise.resolve());
     const kv = await freshKv();
@@ -39,11 +42,24 @@ describe('secureKv', () => {
   });
 
   it('falls back to localStorage when invoke rejects', async () => {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
     invoke.mockRejectedValue(new Error('no tauri'));
     const kv = await freshKv();
     await kv.setItem('token', 'abc');
     expect(localStorage.getItem('kengui.supabase.session')).toBe(JSON.stringify({ token: 'abc' }));
     const kv2 = await freshKv();
     await expect(kv2.getItem('token')).resolves.toBe('abc');
+  });
+
+  it('uses browser storage directly outside Tauri', async () => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+    const kv = await freshKv();
+
+    await kv.setItem('pkce-verifier', 'verifier');
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(localStorage.getItem('kengui.supabase.session')).toBe(
+      JSON.stringify({ 'pkce-verifier': 'verifier' })
+    );
   });
 });

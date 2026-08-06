@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { isTauriRuntime } from './runtime';
 
 const STORAGE_SLOT_KEY = 'kengui.supabase.session';
 
@@ -12,6 +13,9 @@ let cache: Record<string, string> | null = null;
 let hydration: Promise<Record<string, string>> | null = null;
 
 async function readBlob(): Promise<string | null> {
+  if (!isTauriRuntime()) {
+    return typeof localStorage === 'undefined' ? null : localStorage.getItem(STORAGE_SLOT_KEY);
+  }
   try {
     return await invoke<string | null>('load_auth_session');
   } catch {
@@ -20,6 +24,10 @@ async function readBlob(): Promise<string | null> {
 }
 
 async function writeBlob(value: string): Promise<void> {
+  if (!isTauriRuntime()) {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(STORAGE_SLOT_KEY, value);
+    return;
+  }
   try {
     await invoke('save_auth_session', { value });
   } catch {
@@ -28,6 +36,10 @@ async function writeBlob(value: string): Promise<void> {
 }
 
 async function clearBlob(): Promise<void> {
+  if (!isTauriRuntime()) {
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(STORAGE_SLOT_KEY);
+    return;
+  }
   try {
     await invoke('clear_auth_session');
   } catch {
